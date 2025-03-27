@@ -100,41 +100,35 @@ class VisionLLM:
             
             # Select prompt based on type
             if prompt_type == "geo":
-                system_prompt = """Analiza esta imagen desde una perspectiva de geolocalización DETALLADA. Tu objetivo es determinar con la mayor precisión posible la ubicación exacta donde fue tomada la imagen.
+                system_prompt = """Eres un analista especializado en geolocalización de imágenes. Tu tarea es analizar ÚNICAMENTE los elementos arquitectónicos, paisajísticos y geográficos de la imagen para determinar su ubicación probable.
 
-1. Describe exhaustivamente el entorno, incluyendo:
-   - Edificios y arquitectura (estilo, materiales, altura, características distintivas)
-   - Monumentos o estructuras distintivas (nombres si son reconocibles)
-   - Señales, carteles o textos visibles (idioma, contenido exacto, nombres de calles, establecimientos)
-   - Paisajes y características geográficas (montañas, ríos, lagos, costa, etc.)
-   - Vegetación y flora (tipos específicos de árboles, plantas nativas de ciertas regiones)
-   - Clima y condiciones ambientales (estación del año, hora aproximada del día)
-   - Elementos culturales distintivos (vestimenta de personas, vehículos, costumbres)
-   - Infraestructura urbana (diseño de calles, mobiliario urbano, transporte público)
+Por favor, analiza la siguiente imagen y proporciona:
 
-2. Basándote en tu análisis, proporciona una tabla con las posibles ubicaciones geográficas, ordenadas de mayor a menor probabilidad. IMPORTANTE: Usa EXACTAMENTE este formato para la tabla, sin modificarlo:
+1. Descripción detallada del entorno físico:
+   - Edificios y arquitectura (estilo, altura, características distintivas)
+   - Monumentos o estructuras notables
+   - Señales o textos visibles (idioma, nombres de calles)
+   - Características geográficas (montañas, ríos, costa, etc.)
+   - Vegetación y paisaje
+   - Condiciones ambientales y clima visible
+   - Infraestructura urbana (diseño de calles, transportes)
 
-| Nivel de confianza | País | Ciudad/Región | Barrio/Distrito | Calle/Lugar específico | Coordenadas aproximadas |
+2. Proporciona una tabla con posibles ubicaciones, usando exactamente este formato:
+| Nivel de confianza | País | Ciudad/Región | Barrio/Distrito | Lugar específico | Coordenadas aproximadas |
 |-------------------|------|---------------|-----------------|------------------------|-------------------------|
 | 85% | España | Madrid | Centro | Calle Gran Vía | 40.4200, -3.7025 |
 | 65% | Francia | París | Le Marais | Rue de Rivoli | 48.8566, 2.3522 |
-| 40% | Italia | Roma | Centro Storico | Via del Corso | 41.9028, 12.4964 |
 
-3. Para la ubicación con mayor porcentaje de confianza, proporciona información detallada sobre:
-   - Historia y contexto del lugar
-   - Puntos de referencia cercanos que no aparecen en la imagen pero que estarían próximos
-   - Dirección exacta o intersección de calles si es posible determinarla
-   - Orientación de la cámara (hacia qué punto cardinal está mirando)
-   - Cualquier evento temporal que pueda estar ocurriendo (festivales, construcciones, etc.)
+3. Para la ubicación más probable:
+   - Puntos de referencia cercanos
+   - Dirección exacta si es posible
+   - Orientación de la cámara
 
-4. Explica tu razonamiento para cada ubicación propuesta, detallando:
-   - Qué elementos específicos de la imagen te llevaron a identificar cada ubicación
-   - Por qué asignaste ese nivel de confianza
-   - Qué elementos podrían confirmar o descartar cada hipótesis
+4. Explica tu razonamiento:
+   - Elementos que sustentan tu análisis
+   - Razones para los niveles de confianza asignados
 
-5. Si hay elementos en la imagen que son contradictorios o que generan dudas, menciónalos explícitamente.
-
-IMPORTANTE: Asegúrate de incluir la tabla con el formato exacto especificado, incluyendo las coordenadas geográficas para cada ubicación propuesta. Las coordenadas deben estar en formato decimal (ejemplo: 40.4200, -3.7025)."""
+Importante: NO incluyas NINGUNA mención, análisis o descripción de personas en tu respuesta. Enfócate EXCLUSIVAMENTE en elementos geográficos, arquitectónicos y de infraestructura."""
             elif prompt_type == "terrain":
                 system_prompt = """You are a terrain and environment analysis expert.
                 Analyze this drone image and provide detailed information about:
@@ -146,14 +140,16 @@ IMPORTANTE: Asegúrate de incluir la tabla con el formato exacto especificado, i
                 6. Any environmental concerns or notable ecological features
                 Be technical and precise. Focus only on the physical and environmental aspects visible in the image."""
             else:  # general
-                system_prompt = """You are a professional drone image analyst.
-                Examine this drone image and provide:
-                1. A detailed description of what's visible
-                2. Notable objects, people, vehicles, or activities
-                3. Environmental context and conditions
-                4. Patterns or anomalies of interest
-                5. Potential purpose of this drone shot
-                Be objective and thorough in your assessment. Describe only what you can see with confidence."""
+                system_prompt = """Eres un analista de imágenes profesional.
+                Examina esta imagen y proporciona:
+                1. Una descripción detallada del entorno físico y elementos arquitectónicos visibles
+                2. Elementos notables de paisaje, infraestructura y características del terreno
+                3. Condiciones ambientales y meteorológicas observables
+                4. Patrones o características inusuales de interés
+                5. Propósito probable de esta toma
+                
+                Importante: NO incluyas ninguna mención, análisis o descripción de personas en tu respuesta.
+                Sé objetivo y minucioso en tu evaluación. Describe solo lo que puedes ver con confianza."""
                 
             # Create the message content
             messages = [
@@ -164,7 +160,7 @@ IMPORTANTE: Asegúrate de incluir la tabla con el formato exacto especificado, i
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": f"Please analyze this drone image{' named ' + image_name if image_name else ''}:"},
+                        {"type": "text", "text": f"Por favor analiza SOLO los elementos arquitectónicos y geográficos de esta imagen para determinar su ubicación. NO ANALICES personas o individuos."},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -241,18 +237,21 @@ IMPORTANTE: Asegúrate de incluir la tabla con el formato exacto especificado, i
             # Build the conversation history with appropriate system prompt
             if is_geo_query:
                 # Usar el prompt de geolocalización si la consulta es sobre ubicación
-                system_prompt = """Eres un analista geoespacial experto. Analiza la imagen proporcionada y responde a preguntas sobre su ubicación geográfica con la mayor precisión posible.
-                
-                Siempre que puedas, identifica:
-                - País, ciudad, barrio y calle visible en la imagen
-                - Coordenadas geográficas aproximadas
-                - Puntos de referencia visibles que ayuden a identificar el lugar
-                - Características arquitectónicas y culturales distintivas
-                
-                Presenta la información en formato claro y conciso, detallando tu nivel de confianza en cada identificación."""
+                system_prompt = """Eres un analista especializado en geolocalización de imágenes. Tu tarea es analizar ÚNICAMENTE los elementos arquitectónicos, paisajísticos y geográficos de la imagen para determinar su ubicación probable.
+
+Proporciona información sobre:
+- País, ciudad, barrio y calle visible en la imagen
+- Coordenadas geográficas aproximadas
+- Puntos de referencia y características arquitectónicas distintivas
+
+Presenta la información en formato claro y conciso.
+
+IMPORTANTE: NO incluyas NINGUNA mención, análisis o descripción de personas en tu respuesta."""
             else:
-                # Usar el prompt militar estándar para otras consultas
-                system_prompt = """Eres un analista de inteligencia militar con experiencia en geolocalización, análisis de terreno y reconocimiento. Analiza las imágenes proporcionadas y responde a preguntas sobre ellas con precisión y relevancia táctica."""
+                # Prompt genérico para otras consultas
+                system_prompt = """Eres un analista de imágenes profesional especializado en características geográficas, arquitectónicas y ambientales. Analiza las imágenes proporcionadas y responde a las preguntas sobre estos elementos con precisión y detalle.
+
+IMPORTANTE: NO incluyas NINGUNA mención, análisis o descripción de personas en tu respuesta."""
             
             messages = [
                 {
@@ -270,7 +269,7 @@ IMPORTANTE: Asegúrate de incluir la tabla con el formato exacto especificado, i
             messages.append({
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": user_message},
+                    {"type": "text", "text": f"{user_message} (Analiza SOLO elementos arquitectónicos y de paisaje. NO incluyas análisis de personas)"},
                     {
                         "type": "image_url",
                         "image_url": {
