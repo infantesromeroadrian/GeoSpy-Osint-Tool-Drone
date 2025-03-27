@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # Backend service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: backend
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - geospy-network
+    # Temporarily disable healthcheck until we resolve the issues
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/api/session/health"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 20s
+
+  # Frontend service
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: frontend
+    volumes:
+      - ./data:/app/data
+    environment:
+      - API_URL=http://backend:8000
+      - WAIT_FOR_BACKEND=true
+    env_file:
+      - .env
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - geospy-network
+
+  # Nginx service
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf:/etc/nginx/conf.d
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - geospy-network
+
+  # Certbot service
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    restart: unless-stopped
+    networks:
+      - geospy-network
+
+# Named volumes for persistent data
+volumes:
+  drone_geospy_data:
+    driver: local
+
+# Define a network
+networks:
+  geospy-network:
+    driver: bridge 
