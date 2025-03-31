@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import io
+import base64
 
 # Import local modules - ensure compatibility with Docker and local environments
 if "/app" in os.environ.get("PYTHONPATH", ""):
@@ -23,12 +24,14 @@ if "/app" in os.environ.get("PYTHONPATH", ""):
     from utils.metadata_extractor import MetadataExtractor
     from utils.geo_service import GeoService
     from utils.video_processor import VideoProcessor
+    from utils.mapbox_service import MapboxService
 else:
     # Local environment
     from src.models.vision_llm import VisionLLM
     from src.utils.metadata_extractor import MetadataExtractor
     from src.utils.geo_service import GeoService
     from src.utils.video_processor import VideoProcessor
+    from src.utils.mapbox_service import MapboxService
 
 # Create FastAPI app
 app = FastAPI(
@@ -61,9 +64,15 @@ class MapRequest(BaseModel):
     latitude: float
     longitude: float
 
+class ImageComparisonRequest(BaseModel):
+    image_id: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
 # Initialize services
 metadata_extractor = MetadataExtractor()
 geo_service = GeoService()
+mapbox_service = MapboxService()
 
 # Initialize VisionLLM
 try:
@@ -514,6 +523,102 @@ async def generate_map(request: MapRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating map: {str(e)}")
+
+@app.post("/api/location/compare", response_model=Dict[str, Any])
+async def compare_image_with_maps(request: ImageComparisonRequest):
+    """
+    Compare an uploaded image with maps using Mapbox.
+    """
+    try:
+        # Check if image exists in active sessions
+        if request.image_id not in active_sessions:
+            raise HTTPException(status_code=404, detail=f"Image with ID {request.image_id} not found")
+            
+        session = active_sessions[request.image_id]
+        file_path = session.get("file_path")
+        
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"Image file not found for ID {request.image_id}")
+        
+        # Get coordinates from request or from session
+        lat = request.latitude
+        lon = request.longitude
+        
+        if lat is None or lon is None:
+            # Try to get from session
+            if "geo_data" in session and "merged_data" in session["geo_data"]:
+                coords = session["geo_data"]["merged_data"].get("coordinates", {})
+                lat = coords.get("latitude")
+                lon = coords.get("longitude")
+                
+            if lat is None or lon is None:
+                raise HTTPException(status_code=400, detail="No coordinates provided and none found in analysis")
+        
+        # Generate comparison HTML
+        comparison_html = mapbox_service.generate_comparison_html(file_path, lat, lon)
+        
+        # Generate interactive map
+        interactive_map = mapbox_service.generate_interactive_map(lat, lon)
+        
+        return {
+            "image_id": request.image_id,
+            "coordinates": {
+                "latitude": lat,
+                "longitude": lon
+            },
+            "comparison_html": comparison_html,
+            "interactive_map": interactive_map
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error comparing image with maps: {str(e)}")
+
+@app.post("/api/location/satellite", response_model=Dict[str, Any])
+async def get_satellite_image(request: MapRequest):
+    """
+    Get a satellite image for the given coordinates using Mapbox.
+    """
+    try:
+        satellite_image = mapbox_service.get_satellite_image(
+            latitude=request.latitude,
+            longitude=request.longitude
+        )
+        
+        if not satellite_image:
+            raise HTTPException(status_code=500, detail="Failed to get satellite image")
+        
+        # Encode the image to base64 for response
+        image_b64 = base64.b64encode(satellite_image).decode('utf-8')
+        
+        return {
+            "coordinates": {
+                "latitude": request.latitude,
+                "longitude": request.longitude
+            },
+            "image_data": f"data:image/png;base64,{image_b64}"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting satellite image: {str(e)}")
+
+@app.post("/api/generate/interactive_map", response_model=Dict[str, Any])
+async def generate_interactive_map(request: MapRequest):
+    """Generate an interactive map with Mapbox tiles for the given coordinates."""
+    try:
+        # Generate map using MapboxService
+        map_html = mapbox_service.generate_interactive_map(
+            latitude=request.latitude,
+            longitude=request.longitude,
+            zoom=15
+        )
+        
+        if not map_html:
+            raise HTTPException(status_code=500, detail="Failed to generate interactive map")
+            
+        return {"map_html": map_html}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating interactive map: {str(e)}")
 
 # Background tasks
 def analyze_image_task(image_id: str, file_path: str):

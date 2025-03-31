@@ -11,6 +11,27 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 
+# Initialize session state
+def initialize_session_state():
+    """Initialize the session state variables."""
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'current_image_id' not in st.session_state:
+        st.session_state.current_image_id = None
+    if 'current_stream_id' not in st.session_state:
+        st.session_state.current_stream_id = None
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = "upload"
+    if 'analysis_results' not in st.session_state:
+        st.session_state.analysis_results = None
+    if 'map_html' not in st.session_state:
+        st.session_state.map_html = None
+    if 'is_streaming' not in st.session_state:
+        st.session_state.is_streaming = False
+
+# Initialize session state at the beginning
+initialize_session_state()
+
 # Constants
 # Use service name for Docker or fallback to localhost
 API_URL = os.environ.get("API_URL", "http://backend:8000")
@@ -199,22 +220,6 @@ def apply_military_style():
     """, unsafe_allow_html=True)
 
 apply_military_style()
-
-# Initialize session state
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
-if 'current_image_id' not in st.session_state:
-    st.session_state.current_image_id = None
-if 'current_stream_id' not in st.session_state:
-    st.session_state.current_stream_id = None
-if 'active_tab' not in st.session_state:
-    st.session_state.active_tab = "upload"
-if 'analysis_results' not in st.session_state:
-    st.session_state.analysis_results = None
-if 'map_html' not in st.session_state:
-    st.session_state.map_html = None
-if 'is_streaming' not in st.session_state:
-    st.session_state.is_streaming = False
 
 # Header with blinking status
 def get_current_time():
@@ -461,7 +466,7 @@ if st.session_state.active_tab == "upload":
                     try:
                         # Call the API to generate the map
                         response = requests.post(
-                            f"{API_URL}/api/generate/map",
+                            f"{API_URL}/api/generate/interactive_map",
                             json={"latitude": float(lat), "longitude": float(lon)}
                         )
                         
@@ -474,6 +479,36 @@ if st.session_state.active_tab == "upload":
                                 st.markdown("<h3>GEOLOCATION DATA</h3>", unsafe_allow_html=True)
                                 st.components.v1.html(map_html, height=400)
                                 st.markdown("</div>", unsafe_allow_html=True)
+                                
+                                # Add comparison button
+                                if st.button("🔍 COMPARE WITH SATELLITE/MAPS", key="compare_button", use_container_width=True):
+                                    with st.spinner("Generating comparison..."):
+                                        # Get current image ID
+                                        image_id = st.session_state.current_image_id
+                                        
+                                        # Call comparison API
+                                        comparison_response = requests.post(
+                                            f"{API_URL}/api/location/compare",
+                                            json={
+                                                "image_id": image_id,
+                                                "latitude": float(lat),
+                                                "longitude": float(lon)
+                                            }
+                                        )
+                                        
+                                        if comparison_response.status_code == 200:
+                                            comparison_data = comparison_response.json()
+                                            comparison_html = comparison_data.get("comparison_html")
+                                            
+                                            if comparison_html:
+                                                st.markdown("<div class='comparison-section'>", unsafe_allow_html=True)
+                                                st.markdown("<h3>IMAGE COMPARISON</h3>", unsafe_allow_html=True)
+                                                st.components.v1.html(comparison_html, height=800, scrolling=True)
+                                                st.markdown("</div>", unsafe_allow_html=True)
+                                            else:
+                                                st.warning("Failed to generate comparison")
+                                        else:
+                                            st.error(f"Error generating comparison: {comparison_response.text}")
                             else:
                                 st.warning("No map data available")
                         else:
@@ -503,7 +538,7 @@ if st.session_state.active_tab == "upload":
                         if not st.session_state.map_html and lat != 0 and lon != 0:
                             try:
                                 response = requests.post(
-                                    f"{API_URL}/api/generate/map",
+                                    f"{API_URL}/api/generate/interactive_map",
                                     json={"latitude": lat, "longitude": lon}
                                 )
                                 if response.status_code == 200:
@@ -831,4 +866,188 @@ st.markdown("""
 <div style="text-align: center; color: var(--accent-yellow); font-size: 12px;">
     DRONE OSINT GEOSPY v1.0 | CLASSIFIED | FOR AUTHORIZED PERSONNEL ONLY
 </div>
-""", unsafe_allow_html=True) 
+""", unsafe_allow_html=True)
+
+# Add CSS for comparison section
+def apply_custom_css():
+    st.markdown("""
+    <style>
+        /* General Styles */
+        body {
+            font-family: 'Roboto Mono', monospace;
+            background-color: #0E1117;
+            color: #E0E0E0;
+        }
+        
+        /* Container for the map */
+        .map-container {
+            border: 2px solid var(--accent-color, #FF4B4B);
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 20px;
+            background-color: rgba(30, 30, 30, 0.5);
+        }
+        
+        .map-container h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: var(--accent-color, #FF4B4B);
+        }
+        
+        .map-container iframe {
+            width: 100%;
+            height: 400px;
+            border: none;
+            background-color: white;
+        }
+        
+        /* Comparison section */
+        .comparison-section {
+            border: 2px solid var(--accent-color, #FF4B4B);
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+            background-color: rgba(30, 30, 30, 0.5);
+        }
+        
+        .comparison-section h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: var(--accent-color, #FF4B4B);
+        }
+        
+        /* Information boxes */
+        .info-box {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: rgba(30, 30, 30, 0.5);
+        }
+        
+        .info-box h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: var(--accent-color, #FF4B4B);
+        }
+        
+        /* Chat container */
+        .chat-container {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            margin-top: 20px;
+            height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: rgba(20, 20, 20, 0.8);
+        }
+        
+        /* Chat bubbles */
+        .chat-user, .chat-system {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 5px;
+            max-width: 85%;
+        }
+        
+        .chat-user {
+            background-color: #2C3E50;
+            margin-left: auto;
+            margin-right: 0;
+            color: white;
+            text-align: right;
+        }
+        
+        .chat-system {
+            background-color: #34495E;
+            margin-left: 0;
+            margin-right: auto;
+            color: #E0E0E0;
+        }
+        
+        /* Coordinates display */
+        .coordinates {
+            font-family: 'Roboto Mono', monospace;
+            background-color: #1E1E1E;
+            color: #4CAF50;
+            padding: 5px 10px;
+            border-radius: 3px;
+            text-align: center;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        
+        /* Form inputs */
+        .stTextInput input, .stTextArea textarea {
+            background-color: #1E1E1E;
+            color: #E0E0E0;
+            border: 1px solid #444;
+        }
+        
+        /* Buttons */
+        .stButton button {
+            background-color: var(--accent-color, #FF4B4B);
+            color: white;
+            font-weight: bold;
+            border: none;
+            border-radius: 3px;
+            padding: 0.5rem 1rem;
+            font-family: 'Roboto Mono', monospace;
+        }
+        
+        .stButton button:hover {
+            background-color: #D32F2F;
+        }
+        
+        /* Header */
+        .header {
+            background-color: #1E1E1E;
+            padding: 1rem;
+            border-radius: 5px;
+            margin-bottom: 1rem;
+            border-left: 5px solid var(--accent-color, #FF4B4B);
+        }
+        
+        .header h1 {
+            margin: 0;
+            color: white;
+        }
+        
+        /* Metrics */
+        .metrics-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+        
+        .metric {
+            background-color: #1E1E1E;
+            padding: 0.5rem;
+            border-radius: 5px;
+            flex: 1;
+            margin: 0 0.5rem;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--accent-color, #FF4B4B);
+        }
+        
+        .metric-label {
+            font-size: 0.8rem;
+            color: #888;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Main execution code at module level
+if __name__ == "__main__":
+    # Apply custom CSS first
+    apply_custom_css()
+    # Apply military style
+    apply_military_style()
+    # Initialize session state
+    initialize_session_state() 
