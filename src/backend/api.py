@@ -9,6 +9,12 @@ import uuid
 import json
 from datetime import datetime
 import re
+import asyncio
+import time
+import cv2
+import numpy as np
+from PIL import Image
+import io
 
 # Import local modules - ensure compatibility with Docker and local environments
 if "/app" in os.environ.get("PYTHONPATH", ""):
@@ -51,16 +57,21 @@ class AnalysisResponse(BaseModel):
     geo_data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
+class MapRequest(BaseModel):
+    latitude: float
+    longitude: float
+
 # Initialize services
 metadata_extractor = MetadataExtractor()
 geo_service = GeoService()
 
-# Get OpenAI API key from environment 
-openai_api_key = os.getenv("OPENAI_API_KEY", "")
-if not openai_api_key:
-    print("WARNING: OpenAI API key not found in environment variables! VisionLLM features will not work.")
-    
-vision_llm = VisionLLM(api_key=openai_api_key)
+# Initialize VisionLLM
+try:
+    vision_llm = VisionLLM()
+except Exception as e:
+    print(f"WARNING: Failed to initialize VisionLLM: {str(e)}")
+    vision_llm = None
+
 video_processor = VideoProcessor(output_dir="./data/frames")
 
 # Ensure data directories exist
@@ -156,167 +167,50 @@ async def analyze_image(image_id: str):
         with open(file_path, "rb") as image_file:
             image_data = image_file.read()
         
-        # Analyze image with Vision LLM - siempre usando "geo" para obtener información de localización
-        llm_analysis = vision_llm.analyze_image(
-            image_data=image_data, 
-            image_name=os.path.basename(file_path),
-            prompt_type="geo"  # Siempre usar "geo" para obtener información detallada de ubicación
-        )
+        # Analyze image with Vision LLM
+        llm_analysis = vision_llm.analyze_image(file_path)
         session["llm_analysis"] = llm_analysis
         
         # Process geolocation data
         geo_data = None
-        if llm_analysis and "analysis" in llm_analysis:
-            # Parse the LLM analysis to extract structured data
-            analysis_text = llm_analysis["analysis"]
+        if llm_analysis and "geo_data" in llm_analysis:
+            geo_data = llm_analysis["geo_data"]
             
-            # Create basic geo_data structure
-            geo_data = {
-                "text_analysis": analysis_text,
-                "source": "vision_llm"
+            # Add confidence levels for UI
+            confidence = llm_analysis.get("llm_analysis", {}).get("confidence", "low")
+            llm_analysis["confidence_level"] = {
+                "overall": confidence,
+                "country": confidence,
+                "city": confidence,
+                "district": confidence,
+                "neighborhood": confidence,
+                "street": confidence,
+                "coordinates": confidence
             }
             
-            # Intentar extraer la tabla de ubicaciones
-            if "| Nivel de confianza | País |" in analysis_text:
-                # Extraer todas las filas de la tabla
-                table_start = analysis_text.find("| Nivel de confianza | País |")
-                table_end = analysis_text.find("\n\n", table_start)
-                if table_end == -1:  # Si no encuentra un doble salto de línea
-                    table_end = len(analysis_text)
-                    
-                table_text = analysis_text[table_start:table_end].strip()
-                table_rows = table_text.split("\n")
-                
-                # Asegurarse de que hay al menos una fila de datos (después del encabezado y separador)
-                if len(table_rows) >= 3:
-                    # La primera ubicación (más probable) será el índice 2 (después del encabezado y separador)
-                    top_location_row = table_rows[2].strip()
-                    
-                    # Parsear la fila para extraer datos
-                    # Formato: | 85% | España | Madrid | Centro | Calle Gran Vía | 40.4200, -3.7025 |
-                    cells = [cell.strip() for cell in top_location_row.split('|')[1:-1]]
-                    
-                    if len(cells) >= 6:
-                        confidence = cells[0].replace('%', '').strip()
-                        country = cells[1].strip()
-                        city = cells[2].strip()
-                        district = cells[3].strip()
-                        street = cells[4].strip()
-                        coords_text = cells[5].strip()
-                        
-                        # Extraer coordenadas
-                        if ',' in coords_text:
-                            lat_lng = coords_text.split(',')
-                            try:
-                                lat = float(lat_lng[0].strip())
-                                lng = float(lat_lng[1].strip())
-                                
-                                # Crear estructura de datos de ubicación
-                                address = {
-                                    "country": country,
-                                    "city": city,
-                                    "district": district,
-                                    "neighborhood": district,  # Usar distrito como barrio por defecto
-                                    "street": street
-                                }
-                                
-                                coordinates = {
-                                    "latitude": lat,
-                                    "longitude": lng
-                                }
-                                
-                                # Añadir nivel de confianza numérico
-                                confidence_numeric = float(confidence) / 100.0  # Convertir 85% a 0.85
-                                
-                                # Añadir datos para la UI
-                                geo_data["merged_data"] = {
-                                    "coordinates": coordinates,
-                                    "address": address
-                                }
-                                
-                                # Añadir niveles de confianza para la UI
-                                confidence_text = "high" if confidence_numeric > 0.7 else "medium" if confidence_numeric > 0.4 else "low"
-                                llm_analysis["confidence_level"] = {
-                                    "overall": confidence_text,
-                                    "country": confidence_text,
-                                    "city": confidence_text,
-                                    "district": confidence_text,
-                                    "neighborhood": confidence_text,
-                                    "street": confidence_text,
-                                    "coordinates": confidence_text
-                                }
-                                
-                                # Extraer elementos de evidencia del análisis
-                                if "razonamiento" in analysis_text.lower() or "elementos específicos" in analysis_text.lower():
-                                    evidence_section = analysis_text.split("razonamiento", 1)[1] if "razonamiento" in analysis_text.lower() else analysis_text.split("elementos específicos", 1)[1]
-                                    
-                                    # Estructurar la evidencia
-                                    evidence = {
-                                        "landmarks": [],
-                                        "terrain_features": [],
-                                        "architectural_elements": [],
-                                        "signage": []
-                                    }
-                                    
-                                    # Buscar menciones de edificios, monumentos, etc.
-                                    for line in evidence_section.split("\n"):
-                                        line = line.strip()
-                                        if not line or line.startswith("#"):
-                                            continue
-                                            
-                                        if "edificio" in line.lower() or "monumento" in line.lower() or "landmark" in line.lower():
-                                            evidence["landmarks"].append(line)
-                                        elif "terreno" in line.lower() or "vegetación" in line.lower() or "clima" in line.lower():
-                                            evidence["terrain_features"].append(line)
-                                        elif "arquitectura" in line.lower() or "estilo" in line.lower() or "estructura" in line.lower():
-                                            evidence["architectural_elements"].append(line)
-                                        elif "señal" in line.lower() or "cartel" in line.lower() or "texto" in line.lower():
-                                            evidence["signage"].append(line)
-                                    
-                                    llm_analysis["evidence"] = evidence
-                                
-                                # Extraer razonamiento para la UI
-                                if "razonamiento" in analysis_text.lower():
-                                    reasoning_section = analysis_text.split("razonamiento", 1)[1]
-                                    llm_analysis["reasoning"] = reasoning_section.strip()
-                                
-                                # Generar mapa si las coordenadas están disponibles
-                                if lat and lng:
-                                    map_html = geo_service.generate_map(lat, lng)
-                                    geo_data["map"] = map_html
-                            except (ValueError, IndexError):
-                                # Si hay error al parsear las coordenadas
-                                pass
+            # Add evidence for UI
+            llm_analysis["evidence"] = {
+                "landmarks": geo_data.get("architectural_features", []),
+                "terrain_features": geo_data.get("landscape_features", []),
+                "architectural_elements": geo_data.get("architectural_features", []),
+                "signage": []
+            }
             
-            # Usar datos GPS de metadata si están disponibles y no se pudo extraer de la tabla
-            if "merged_data" not in geo_data and gps_coords:
-                geo_data["gps_metadata"] = gps_coords
-                
-                if "latitude" in gps_coords and "longitude" in gps_coords:
-                    coordinates = {
-                        "latitude": gps_coords["latitude"],
-                        "longitude": gps_coords["longitude"]
-                    }
-                    
-                    address = {
-                        "country": "Unknown (GPS only)",
-                        "city": "Unknown",
-                        "district": "Unknown",
-                        "neighborhood": "Unknown",
-                        "street": "Unknown"
-                    }
-                    
-                    geo_data["merged_data"] = {
-                        "coordinates": coordinates,
-                        "address": address
-                    }
-                    
-                    # Generar mapa con coordenadas GPS
-                    map_html = geo_service.generate_map(
-                        gps_coords["latitude"], 
-                        gps_coords["longitude"]
-                    )
-                    geo_data["map"] = map_html
+            # Add reasoning for UI
+            llm_analysis["reasoning"] = llm_analysis.get("llm_analysis", {}).get("description", "No detailed reasoning available.")
+            
+            # Generate map if coordinates are available
+            if "coordinates" in geo_data:
+                coords = geo_data["coordinates"]
+                lat = coords.get("latitude")
+                lon = coords.get("longitude")
+                if lat and lon and lat != "0" and lon != "0":
+                    try:
+                        map_html = geo_service.generate_map(float(lat), float(lon))
+                        geo_data["map"] = map_html
+                    except Exception as map_error:
+                        print(f"Error generating map: {str(map_error)}")
+                        geo_data["map"] = None
         
         session["geo_data"] = geo_data
         session["status"] = "completed"
@@ -601,6 +495,25 @@ async def get_session(session_id: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting session: {str(e)}")
+
+@app.post("/api/generate/map")
+async def generate_map(request: MapRequest):
+    """Generate a map for the given coordinates."""
+    try:
+        # Generate map using GeoService
+        map_html = geo_service.generate_map(
+            latitude=request.latitude,
+            longitude=request.longitude,
+            zoom=15
+        )
+        
+        if not map_html:
+            raise HTTPException(status_code=500, detail="Failed to generate map")
+            
+        return {"map_html": map_html}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating map: {str(e)}")
 
 # Background tasks
 def analyze_image_task(image_id: str, file_path: str):

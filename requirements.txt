@@ -6,8 +6,7 @@ pydantic==2.5.3
 
 # Vision and AI capabilities
 langchain==0.1.5
-openai==1.1.1
-httpx==0.24.1
+google-generativeai==0.3.2
 pillow==10.2.0
 opencv-python==4.9.0.80
 numpy==1.26.3

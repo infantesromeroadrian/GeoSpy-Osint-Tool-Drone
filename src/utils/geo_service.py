@@ -137,30 +137,43 @@ class GeoService:
         """
         try:
             # Create a map centered at the specified location
-            map_obj = folium.Map(location=[latitude, longitude], zoom_start=zoom)
+            map_obj = folium.Map(
+                location=[latitude, longitude],
+                zoom_start=zoom,
+                width='100%',
+                height='400px',
+                control_scale=True
+            )
             
             # Add a marker at the exact location
             folium.Marker(
                 [latitude, longitude],
                 popup=f"Lat: {latitude:.6f}, Long: {longitude:.6f}",
-                icon=folium.Icon(color="red", icon="crosshairs", prefix="fa")
+                icon=folium.Icon(color="red", icon="info-sign")
             ).add_to(map_obj)
             
             # Add a circle to represent approximate accuracy
             folium.Circle(
                 radius=50,
                 location=[latitude, longitude],
+                popup='Approximate Area',
                 color="crimson",
                 fill=True,
                 fill_color="crimson",
                 fill_opacity=0.2
             ).add_to(map_obj)
             
-            # Return the HTML representation of the map
-            return map_obj._repr_html_()
+            # Get the HTML representation
+            html = map_obj._repr_html_()
+            
+            # Clean up the HTML
+            html = html.replace('\n', '').replace('  ', '')
+            
+            return html
             
         except Exception as e:
-            return f"<div class='error'>Error generating map: {str(e)}</div>"
+            print(f"Error generating map: {str(e)}")
+            return None
     
     def merge_location_data(self, llm_data: Dict[str, Any], metadata_gps: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """

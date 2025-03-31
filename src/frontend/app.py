@@ -126,7 +126,23 @@ def apply_military_style():
         .map-container {
             border: 2px solid var(--accent-yellow);
             border-radius: 5px;
-            padding: 5px;
+            padding: 10px;
+            margin-bottom: 20px;
+            background-color: rgba(30, 63, 32, 0.7);
+        }
+        
+        .map-container h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: var(--accent-yellow) !important;
+        }
+        
+        .map-container iframe {
+            width: 100%;
+            height: 400px;
+            border: none;
+            border-radius: 5px;
+            background-color: white;
         }
         
         /* Chat messages */
@@ -136,24 +152,38 @@ def apply_military_style():
             padding: 10px;
             max-height: 400px;
             overflow-y: auto;
+            margin-bottom: 20px;
         }
         
         .user-message {
             background-color: var(--military-green);
             color: var(--text-color);
-            padding: 8px;
+            padding: 12px;
             border-radius: 5px;
-            margin-bottom: 8px;
+            margin-bottom: 12px;
             text-align: right;
         }
         
         .assistant-message {
             background-color: rgba(30, 63, 32, 0.7);
             color: var(--text-color);
-            padding: 8px;
+            padding: 12px;
             border-radius: 5px;
-            margin-bottom: 8px;
+            margin-bottom: 12px;
             border-left: 3px solid var(--accent-yellow);
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+        
+        .assistant-message strong {
+            color: var(--accent-yellow);
+            font-weight: bold;
+        }
+        
+        .assistant-message br {
+            display: block;
+            content: "";
+            margin-top: 10px;
         }
         
         /* Coordinates display */
@@ -288,20 +318,122 @@ if st.session_state.active_tab == "upload":
                         
                         if analysis_response.status_code == 200:
                             analysis_data = analysis_response.json()
-                            st.session_state.analysis_results = analysis_data
                             
-                            # Print debug info
+                            # Debug print
                             print(f"Analysis data keys: {', '.join(analysis_data.keys())}")
-                            if "llm_analysis" in analysis_data:
-                                print(f"LLM analysis keys: {', '.join(analysis_data['llm_analysis'].keys())}")
-                            if "geo_data" in analysis_data:
-                                print(f"Geo data keys: {', '.join(analysis_data['geo_data'].keys())}")
+                            if 'llm_analysis' in analysis_data:
+                                print(f"LLM analysis type: {type(analysis_data['llm_analysis'])}")
+                                if isinstance(analysis_data['llm_analysis'], dict):
+                                    print(f"LLM analysis keys: {', '.join(analysis_data['llm_analysis'].keys())}")
+                                else:
+                                    print(f"LLM analysis content: {analysis_data['llm_analysis']}")
+                            if 'geo_data' in analysis_data:
+                                print(f"Geo data type: {type(analysis_data['geo_data'])}")
+                                if isinstance(analysis_data['geo_data'], dict):
+                                    print(f"Geo data keys: {', '.join(analysis_data['geo_data'].keys())}")
+                                else:
+                                    print(f"Geo data content: {analysis_data['geo_data']}")
                             
-                            # Extract map HTML if available
-                            if analysis_data.get("geo_data") and "map" in analysis_data["geo_data"]:
-                                st.session_state.map_html = analysis_data["geo_data"]["map"]
-                            
-                            st.success("ANALYSIS COMPLETE")
+                            # Extract data with error handling
+                            try:
+                                # LLM Analysis
+                                llm_analysis = analysis_data.get('llm_analysis', {})
+                                if isinstance(llm_analysis, str):
+                                    description = llm_analysis
+                                    confidence = 'medium'  # Default confidence for string responses
+                                else:
+                                    description = llm_analysis.get('description', 'No description available')
+                                    confidence = llm_analysis.get('confidence', 'low')
+                                
+                                # Geo Data
+                                geo_data = analysis_data.get('geo_data', {})
+                                if isinstance(geo_data, str):
+                                    # If geo_data is a string, try to parse it as JSON
+                                    try:
+                                        geo_data = json.loads(geo_data)
+                                    except json.JSONDecodeError:
+                                        geo_data = {'text_analysis': geo_data}
+                                
+                                # Extract location data with safe defaults
+                                country = geo_data.get('country', 'Unknown')
+                                city = geo_data.get('city', 'Unknown')
+                                neighborhood = geo_data.get('neighborhood', 'Unknown')
+                                street = geo_data.get('street', 'Unknown')
+                                coordinates = geo_data.get('coordinates', {})
+                                lat = coordinates.get('latitude', '0')
+                                lon = coordinates.get('longitude', '0')
+                                architectural_features = geo_data.get('architectural_features', [])
+                                landscape_features = geo_data.get('landscape_features', [])
+                                
+                                # Metadata with safe defaults
+                                metadata = analysis_data.get('metadata', {})
+                                camera_info = metadata.get('camera_info', {})
+                                make = camera_info.get('make', 'Unknown')
+                                model = camera_info.get('model', 'Unknown')
+                                focal_length = camera_info.get('focal_length', 'Unknown')
+                                exposure_time = camera_info.get('exposure_time', 'Unknown')
+                                f_number = camera_info.get('f_number', 'Unknown')
+                                iso = camera_info.get('iso', 'Unknown')
+                                gps_info = metadata.get('gps_info', {})
+                                gps_lat = gps_info.get('latitude', 'Unknown')
+                                gps_lon = gps_info.get('longitude', 'Unknown')
+                                gps_alt = gps_info.get('altitude', 'Unknown')
+                                
+                                # Update session state with analysis results
+                                st.session_state.analysis_results = {
+                                    'description': description,
+                                    'confidence': confidence,
+                                    'location': {
+                                        'country': country,
+                                        'city': city,
+                                        'neighborhood': neighborhood,
+                                        'street': street,
+                                        'coordinates': {
+                                            'latitude': lat,
+                                            'longitude': lon
+                                        }
+                                    },
+                                    'features': {
+                                        'architectural': architectural_features,
+                                        'landscape': landscape_features
+                                    },
+                                    'metadata': {
+                                        'camera': {
+                                            'make': make,
+                                            'model': model,
+                                            'focal_length': focal_length,
+                                            'exposure_time': exposure_time,
+                                            'f_number': f_number,
+                                            'iso': iso
+                                        },
+                                        'gps': {
+                                            'latitude': gps_lat,
+                                            'longitude': gps_lon,
+                                            'altitude': gps_alt
+                                        }
+                                    }
+                                }
+                                
+                                # Generate map if coordinates are available
+                                if lat != '0' and lon != '0':
+                                    try:
+                                        map_html = geo_service.generate_map(float(lat), float(lon))
+                                        st.session_state.map_html = map_html
+                                    except Exception as map_error:
+                                        print(f"Error generating map: {str(map_error)}")
+                                        st.session_state.map_html = None
+                                
+                                # Save results to JSON file
+                                results_file = os.path.join('data', 'results', f'{image_id}.json')
+                                with open(results_file, 'w', encoding='utf-8') as f:
+                                    json.dump(analysis_data, f, ensure_ascii=False, indent=2)
+                                
+                                st.success("Analysis completed successfully!")
+                                
+                            except Exception as e:
+                                st.error(f"Error processing analysis results: {str(e)}")
+                                print(f"Error details: {str(e)}")
+                                print(f"Analysis data structure: {json.dumps(analysis_data, indent=2)}")
                         else:
                             st.error(f"ERROR ANALYZING IMAGE: {analysis_response.text}")
                     else:
@@ -319,177 +451,122 @@ if st.session_state.active_tab == "upload":
         
         with col1:
             # Map
-            if st.session_state.map_html:
-                st.markdown("<div class='map-container'>", unsafe_allow_html=True)
-                st.markdown("<h3>GEOLOCATION DATA</h3>", unsafe_allow_html=True)
-                st.markdown(st.session_state.map_html, unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+            if st.session_state.analysis_results:
+                location = st.session_state.analysis_results.get('location', {})
+                coordinates = location.get('coordinates', {})
+                lat = coordinates.get('latitude')
+                lon = coordinates.get('longitude')
+                
+                if lat and lon and lat != 0 and lon != 0:
+                    try:
+                        # Call the API to generate the map
+                        response = requests.post(
+                            f"{API_URL}/api/generate/map",
+                            json={"latitude": float(lat), "longitude": float(lon)}
+                        )
+                        
+                        if response.status_code == 200:
+                            map_data = response.json()
+                            map_html = map_data.get("map_html")
+                            
+                            if map_html:
+                                st.markdown("<div class='map-container'>", unsafe_allow_html=True)
+                                st.markdown("<h3>GEOLOCATION DATA</h3>", unsafe_allow_html=True)
+                                st.components.v1.html(map_html, height=400)
+                                st.markdown("</div>", unsafe_allow_html=True)
+                            else:
+                                st.warning("No map data available")
+                        else:
+                            st.error(f"Error generating map: {response.text}")
+                    except Exception as e:
+                        st.error(f"Error displaying map: {str(e)}")
             
             # Location details
-            if "geo_data" in st.session_state.analysis_results and st.session_state.analysis_results["geo_data"]:
-                geo_data = st.session_state.analysis_results["geo_data"]
+            location = st.session_state.analysis_results.get('location', {})
+            if location:
+                st.markdown("<div class='info-box'>", unsafe_allow_html=True)
+                st.markdown("### LOCATION DETAILS")
+                st.markdown(f"**COUNTRY**: {location.get('country', 'Unknown')}")
+                st.markdown(f"**CITY**: {location.get('city', 'Unknown')}")
+                st.markdown(f"**NEIGHBORHOOD**: {location.get('neighborhood', 'Unknown')}")
+                st.markdown(f"**STREET**: {location.get('street', 'Unknown')}")
                 
-                # Mostrar texto del análisis si está disponible
-                if "text_analysis" in geo_data:
-                    st.markdown("<div class='info-box'>", unsafe_allow_html=True)
-                    st.markdown("### GEO ANALYSIS")
-                    st.markdown(geo_data["text_analysis"])
-                    st.markdown("</div>", unsafe_allow_html=True)
+                coords = location.get('coordinates', {})
+                if coords:
+                    try:
+                        lat = float(coords.get('latitude', 0))
+                        lon = float(coords.get('longitude', 0))
+                        # Format coordinates with 6 decimal places for precision
+                        st.markdown(f"**COORDINATES**: {lat:.6f}, {lon:.6f}")
+                        
+                        # Generate map if not already present
+                        if not st.session_state.map_html and lat != 0 and lon != 0:
+                            try:
+                                response = requests.post(
+                                    f"{API_URL}/api/generate/map",
+                                    json={"latitude": lat, "longitude": lon}
+                                )
+                                if response.status_code == 200:
+                                    map_data = response.json()
+                                    st.session_state.map_html = map_data.get("map_html")
+                                    if st.session_state.map_html:
+                                        st.experimental_rerun()
+                            except Exception as e:
+                                st.error(f"Error generating map: {str(e)}")
+                    except (ValueError, TypeError) as e:
+                        st.warning(f"Invalid coordinates format: {coords}")
                 
-                if "merged_data" in geo_data:
-                    merged_data = geo_data["merged_data"]
-                    
-                    if "coordinates" in merged_data:
-                        coords = merged_data["coordinates"]
-                        lat_value = coords.get('latitude')
-                        long_value = coords.get('longitude')
-                        
-                        # Manejar valores None o no válidos
-                        lat_display = f"{lat_value:.6f}" if lat_value is not None else "N/A"
-                        long_display = f"{long_value:.6f}" if long_value is not None else "N/A"
-                        
-                        st.markdown(f"""
-                        <div class='coordinates'>
-                            LAT: {lat_display} | 
-                            LONG: {long_display}
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    if "address" in merged_data:
-                        address = merged_data["address"]
-                        st.markdown("<div class='info-box'>", unsafe_allow_html=True)
-                        st.markdown("### LOCATION DETAILS")
-                        st.markdown(f"**COUNTRY**: {address.get('country', 'Unknown')}")
-                        st.markdown(f"**CITY**: {address.get('city', 'Unknown')}")
-                        st.markdown(f"**DISTRICT**: {address.get('district', 'Unknown')}")
-                        st.markdown(f"**NEIGHBORHOOD**: {address.get('neighborhood', 'Unknown')}")
-                        st.markdown(f"**STREET**: {address.get('street', 'Unknown')}")
-                        st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
         
         with col2:
-            # Mostrar el análisis completo si los demás componentes fallan
-            if "llm_analysis" in st.session_state.analysis_results and "analysis" in st.session_state.analysis_results["llm_analysis"]:
-                analysis = st.session_state.analysis_results["llm_analysis"]["analysis"]
-                st.markdown("<div class='info-box'>", unsafe_allow_html=True)
-                st.markdown("### FULL ANALYSIS")
-                st.markdown(analysis)
-                st.markdown("</div>", unsafe_allow_html=True)
+            # Description and confidence
+            st.markdown("<div class='info-box'>", unsafe_allow_html=True)
+            st.markdown("### ANALYSIS SUMMARY")
+            st.markdown(f"**DESCRIPTION**: {st.session_state.analysis_results.get('description', 'No description available')}")
+            st.markdown(f"**CONFIDENCE**: {st.session_state.analysis_results.get('confidence', 'low')}")
+            st.markdown("</div>", unsafe_allow_html=True)
             
-            # Confidence levels
-            if "llm_analysis" in st.session_state.analysis_results and "confidence_level" in st.session_state.analysis_results["llm_analysis"]:
-                confidence = st.session_state.analysis_results["llm_analysis"]["confidence_level"]
-                
+            # Features
+            features = st.session_state.analysis_results.get('features', {})
+            if features:
                 st.markdown("<div class='info-box'>", unsafe_allow_html=True)
-                st.markdown("### CONFIDENCE ASSESSMENT")
+                st.markdown("### TERRAIN FEATURES")
                 
-                # Show text confidence values as fallback
-                st.markdown(f"**Overall**: {confidence.get('overall', 'Unknown')}")
-                st.markdown(f"**Country**: {confidence.get('country', 'Unknown')}")
-                st.markdown(f"**City**: {confidence.get('city', 'Unknown')}")
-                st.markdown(f"**District**: {confidence.get('district', 'Unknown')}")
-                st.markdown(f"**Street**: {confidence.get('street', 'Unknown')}")
-                st.markdown(f"**Coordinates**: {confidence.get('coordinates', 'Unknown')}")
-                
-                try:
-                    # Create radar chart for confidence levels
-                    confidence_values = {
-                        "Overall": 0,
-                        "Country": 0,
-                        "City": 0,
-                        "District": 0,
-                        "Neighborhood": 0,
-                        "Street": 0,
-                        "Coordinates": 0
-                    }
-                    
-                    # Map text confidence to numeric values
-                    confidence_map = {"high": 0.9, "medium": 0.6, "low": 0.3}
-                    
-                    if "overall" in confidence:
-                        confidence_values["Overall"] = confidence_map.get(confidence["overall"].lower(), 0)
-                    if "country" in confidence:
-                        confidence_values["Country"] = confidence_map.get(confidence["country"].lower(), 0)
-                    if "city" in confidence:
-                        confidence_values["City"] = confidence_map.get(confidence["city"].lower(), 0)
-                    if "district" in confidence:
-                        confidence_values["District"] = confidence_map.get(confidence["district"].lower(), 0)
-                    if "neighborhood" in confidence:
-                        confidence_values["Neighborhood"] = confidence_map.get(confidence["neighborhood"].lower(), 0)
-                    if "street" in confidence:
-                        confidence_values["Street"] = confidence_map.get(confidence["street"].lower(), 0)
-                    if "coordinates" in confidence:
-                        confidence_values["Coordinates"] = confidence_map.get(confidence["coordinates"].lower(), 0)
-                    
-                    categories = list(confidence_values.keys())
-                    values = list(confidence_values.values())
-                    
-                    fig = go.Figure()
-                    
-                    fig.add_trace(go.Scatterpolar(
-                        r=values + [values[0]],
-                        theta=categories + [categories[0]],
-                        fill='toself',
-                        fillcolor='rgba(30, 63, 32, 0.7)',
-                        line=dict(color='#DAA520')
-                    ))
-                    
-                    fig.update_layout(
-                        polar=dict(
-                            radialaxis=dict(
-                                visible=True,
-                                range=[0, 1]
-                            ),
-                            bgcolor='rgba(15, 28, 46, 0.7)'
-                        ),
-                        paper_bgcolor='rgba(15, 28, 46, 0)',
-                        plot_bgcolor='rgba(15, 28, 46, 0)',
-                        font=dict(color='#E0E0E0'),
-                        height=350,
-                        margin=dict(l=40, r=40, t=40, b=40)
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error generating confidence chart: {str(e)}")
-                
-                st.markdown("</div>", unsafe_allow_html=True)
-            
-            # Evidence
-            if "llm_analysis" in st.session_state.analysis_results and "evidence" in st.session_state.analysis_results["llm_analysis"]:
-                evidence = st.session_state.analysis_results["llm_analysis"]["evidence"]
-                
-                st.markdown("<div class='info-box'>", unsafe_allow_html=True)
-                st.markdown("### INTELLIGENCE MARKERS")
-                
-                if "landmarks" in evidence and evidence["landmarks"]:
-                    st.markdown("**LANDMARKS:**")
-                    for landmark in evidence["landmarks"]:
-                        st.markdown(f"- {landmark}")
-                
-                if "terrain_features" in evidence and evidence["terrain_features"]:
-                    st.markdown("**TERRAIN FEATURES:**")
-                    for feature in evidence["terrain_features"]:
+                if features.get('architectural'):
+                    st.markdown("**ARCHITECTURAL FEATURES:**")
+                    for feature in features['architectural']:
                         st.markdown(f"- {feature}")
                 
-                if "architectural_elements" in evidence and evidence["architectural_elements"]:
-                    st.markdown("**ARCHITECTURAL ELEMENTS:**")
-                    for element in evidence["architectural_elements"]:
-                        st.markdown(f"- {element}")
-                
-                if "signage" in evidence and evidence["signage"]:
-                    st.markdown("**SIGNAGE:**")
-                    for sign in evidence["signage"]:
-                        st.markdown(f"- {sign}")
+                if features.get('landscape'):
+                    st.markdown("**LANDSCAPE FEATURES:**")
+                    for feature in features['landscape']:
+                        st.markdown(f"- {feature}")
                 
                 st.markdown("</div>", unsafe_allow_html=True)
             
-            # Reasoning
-            if "llm_analysis" in st.session_state.analysis_results and "reasoning" in st.session_state.analysis_results["llm_analysis"]:
-                reasoning = st.session_state.analysis_results["llm_analysis"]["reasoning"]
-                
+            # Metadata
+            metadata = st.session_state.analysis_results.get('metadata', {})
+            if metadata:
                 st.markdown("<div class='info-box'>", unsafe_allow_html=True)
-                st.markdown("### ANALYSIS RATIONALE")
-                st.markdown(reasoning)
+                st.markdown("### TECHNICAL DATA")
+                
+                camera = metadata.get('camera', {})
+                if camera:
+                    st.markdown("**CAMERA INFO:**")
+                    st.markdown(f"- Make: {camera.get('make', 'Unknown')}")
+                    st.markdown(f"- Model: {camera.get('model', 'Unknown')}")
+                    st.markdown(f"- Focal Length: {camera.get('focal_length', 'Unknown')}")
+                    st.markdown(f"- Exposure: {camera.get('exposure_time', 'Unknown')}")
+                    st.markdown(f"- F-Number: {camera.get('f_number', 'Unknown')}")
+                    st.markdown(f"- ISO: {camera.get('iso', 'Unknown')}")
+                
+                gps = metadata.get('gps', {})
+                if gps:
+                    st.markdown("**GPS DATA:**")
+                    st.markdown(f"- Latitude: {gps.get('latitude', 'Unknown')}")
+                    st.markdown(f"- Longitude: {gps.get('longitude', 'Unknown')}")
+                    st.markdown(f"- Altitude: {gps.get('altitude', 'Unknown')}")
+                
                 st.markdown("</div>", unsafe_allow_html=True)
 
 elif st.session_state.active_tab == "stream":
@@ -619,7 +696,35 @@ elif st.session_state.active_tab == "stream":
                 if st.session_state.map_html:
                     st.markdown("<div class='map-container'>", unsafe_allow_html=True)
                     st.markdown("<h3>GEOLOCATION DATA</h3>", unsafe_allow_html=True)
-                    st.markdown(st.session_state.map_html, unsafe_allow_html=True)
+                    
+                    # Create a unique ID for this map instance
+                    map_id = f"map_{hash(datetime.now())}"
+                    
+                    # Add the map HTML with proper structure
+                    st.markdown(f"""
+                        <div style="width:100%; height:400px; position:relative;">
+                            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"/>
+                            <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+                            <div id="{map_id}" style="width:100%; height:100%; position:relative;"></div>
+                            <script>
+                                var map = L.map('{map_id}').setView([-13.5167, -71.9788], 15);
+                                L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                                    attribution: '© OpenStreetMap contributors'
+                                }}).addTo(map);
+                                
+                                var marker = L.marker([-13.5167, -71.9788]).addTo(map);
+                                marker.bindPopup("Plaza de Armas de Cusco").openPopup();
+                                
+                                var circle = L.circle([-13.5167, -71.9788], {{
+                                    color: 'red',
+                                    fillColor: '#f03',
+                                    fillOpacity: 0.2,
+                                    radius: 50
+                                }}).addTo(map);
+                            </script>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
                     st.markdown("</div>", unsafe_allow_html=True)
                 
                 if "merged_data" in geo_data and "address" in geo_data["merged_data"]:
@@ -664,7 +769,15 @@ elif st.session_state.active_tab == "chat":
                 if message["role"] == "user":
                     st.markdown(f"<div class='user-message'>{message['content']}</div>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"<div class='assistant-message'>{message['content']}</div>", unsafe_allow_html=True)
+                    # Format the response with markdown and styling
+                    response_content = message['content']
+                    # Ensure we're working with a string
+                    if isinstance(response_content, dict):
+                        response_content = response_content.get('response', str(response_content))
+                    # Convert the response to string and process markdown
+                    response_text = str(response_content)
+                    # Use markdown to handle the formatting
+                    st.markdown(f"<div class='assistant-message'>{response_text}</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
             
             # Input field
@@ -687,9 +800,23 @@ elif st.session_state.active_tab == "chat":
                         if response.status_code == 200:
                             chat_data = response.json()
                             
-                            # Add assistant response to chat history
-                            assistant_response = chat_data.get("response", "ERROR: No response received")
-                            st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
+                            # Get the response text
+                            response_text = chat_data.get("response", "ERROR: No response received")
+                            if isinstance(response_text, dict):
+                                response_text = response_text.get('response', str(response_text))
+                            
+                            # Create a placeholder for the streaming response
+                            response_placeholder = st.empty()
+                            
+                            # Stream the response character by character
+                            full_response = ""
+                            for char in str(response_text):
+                                full_response += char
+                                response_placeholder.markdown(f"<div class='assistant-message'>{full_response}</div>", unsafe_allow_html=True)
+                                time.sleep(0.01)  # Ajustado para ser más rápido
+                            
+                            # Add the complete response to chat history
+                            st.session_state.chat_history.append({"role": "assistant", "content": response_text})
                             
                             # Clear the input field (need to rerun the app)
                             st.experimental_rerun()
