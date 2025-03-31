@@ -64,6 +64,14 @@ class MapRequest(BaseModel):
     latitude: float
     longitude: float
 
+class GeocodeRequest(BaseModel):
+    query: str
+    limit: Optional[int] = 5
+
+class ReverseGeocodeRequest(BaseModel):
+    latitude: float
+    longitude: float
+
 class ImageComparisonRequest(BaseModel):
     image_id: str
     latitude: Optional[float] = None
@@ -619,6 +627,89 @@ async def generate_interactive_map(request: MapRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating interactive map: {str(e)}")
+
+@app.post("/api/geocode/forward", response_model=Dict[str, Any])
+async def geocode_forward(request: GeocodeRequest):
+    """
+    Perform forward geocoding (address to coordinates) using Mapbox Geocoding API.
+    """
+    try:
+        results = mapbox_service.geocode_forward(
+            query=request.query,
+            limit=request.limit if request.limit is not None else 5
+        )
+        
+        if not results:
+            return {"results": [], "message": "No results found"}
+            
+        return {
+            "results": results,
+            "count": len(results),
+            "query": request.query
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in forward geocoding: {str(e)}")
+
+@app.post("/api/geocode/reverse", response_model=Dict[str, Any])
+async def geocode_reverse(request: ReverseGeocodeRequest):
+    """
+    Perform reverse geocoding (coordinates to address) using Mapbox Geocoding API.
+    """
+    try:
+        result = mapbox_service.geocode_reverse(
+            longitude=request.longitude,
+            latitude=request.latitude
+        )
+        
+        if "error" in result:
+            return {"result": None, "message": result["error"]}
+            
+        return {
+            "result": result,
+            "coordinates": {
+                "latitude": request.latitude,
+                "longitude": request.longitude
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in reverse geocoding: {str(e)}")
+
+@app.post("/api/static-map", response_model=Dict[str, Any])
+async def get_static_map(request: MapRequest, style: str = "streets-v11", width: int = 600, height: int = 400, zoom: int = 15):
+    """
+    Generate a static map image for the given coordinates using Mapbox Static Images API.
+    """
+    try:
+        # Generate map using MapboxService
+        map_image = mapbox_service.get_static_map(
+            latitude=request.latitude,
+            longitude=request.longitude,
+            zoom=zoom,
+            width=width,
+            height=height,
+            style=style,
+            marker=True
+        )
+        
+        if not map_image:
+            raise HTTPException(status_code=500, detail="Failed to generate static map")
+        
+        # Encode the image to base64 for response
+        image_b64 = base64.b64encode(map_image).decode('utf-8')
+        
+        return {
+            "coordinates": {
+                "latitude": request.latitude,
+                "longitude": request.longitude
+            },
+            "style": style,
+            "image_data": f"data:image/png;base64,{image_b64}"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating static map: {str(e)}")
 
 # Background tasks
 def analyze_image_task(image_id: str, file_path: str):

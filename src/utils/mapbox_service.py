@@ -22,6 +22,113 @@ class MapboxService:
         if not self.mapbox_api_key:
             print("WARNING: MAPBOX_API_KEY not found in environment variables")
     
+    def geocode_forward(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Perform forward geocoding (address to coordinates) using Mapbox Geocoding API.
+        
+        Args:
+            query: The address or place name to geocode
+            limit: Maximum number of results to return (1-10)
+            
+        Returns:
+            List of geocoding results with coordinates and other data
+        """
+        try:
+            # Ensure limit is between 1 and 10
+            limit = max(1, min(10, limit))
+            
+            # Build the Mapbox Geocoding API URL
+            url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{query}.json?access_token={self.mapbox_api_key}&limit={limit}"
+            
+            # Make the request
+            response = requests.get(url)
+            response.raise_for_status()
+            
+            # Parse the response
+            data = response.json()
+            
+            # Extract and format the results
+            results = []
+            for feature in data.get("features", []):
+                center = feature.get("center", [0, 0])
+                result = {
+                    "name": feature.get("text", ""),
+                    "place_name": feature.get("place_name", ""),
+                    "longitude": center[0],
+                    "latitude": center[1],
+                    "place_type": feature.get("place_type", []),
+                    "relevance": feature.get("relevance", 0),
+                    "bbox": feature.get("bbox")
+                }
+                results.append(result)
+            
+            return results
+            
+        except Exception as e:
+            print(f"Error in forward geocoding: {str(e)}")
+            return []
+    
+    def geocode_reverse(self, longitude: float, latitude: float) -> Dict[str, Any]:
+        """
+        Perform reverse geocoding (coordinates to address) using Mapbox Geocoding API.
+        
+        Args:
+            longitude: Longitude in decimal degrees
+            latitude: Latitude in decimal degrees
+            
+        Returns:
+            Dictionary with address data
+        """
+        try:
+            # Build the Mapbox Geocoding API URL
+            url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{longitude},{latitude}.json?access_token={self.mapbox_api_key}"
+            
+            # Make the request
+            response = requests.get(url)
+            response.raise_for_status()
+            
+            # Parse the response
+            data = response.json()
+            
+            # Extract the most relevant result
+            if data.get("features") and len(data["features"]) > 0:
+                feature = data["features"][0]
+                center = feature.get("center", [0, 0])
+                
+                # Extract address components
+                address_components = {}
+                for context in feature.get("context", []):
+                    context_id = context.get("id", "")
+                    if context_id.startswith("country"):
+                        address_components["country"] = context.get("text", "")
+                    elif context_id.startswith("region"):
+                        address_components["region"] = context.get("text", "")
+                    elif context_id.startswith("district"):
+                        address_components["district"] = context.get("text", "")
+                    elif context_id.startswith("place"):
+                        address_components["city"] = context.get("text", "")
+                    elif context_id.startswith("postcode"):
+                        address_components["postcode"] = context.get("text", "")
+                    elif context_id.startswith("neighborhood"):
+                        address_components["neighborhood"] = context.get("text", "")
+                
+                # Create the result
+                result = {
+                    "place_name": feature.get("place_name", ""),
+                    "longitude": center[0],
+                    "latitude": center[1],
+                    "address_components": address_components,
+                    "address_type": feature.get("place_type", []),
+                }
+                
+                return result
+            
+            return {"error": "No results found"}
+            
+        except Exception as e:
+            print(f"Error in reverse geocoding: {str(e)}")
+            return {"error": str(e)}
+    
     def get_satellite_image(self, latitude: float, longitude: float, zoom: int = 15, 
                            width: int = 600, height: int = 400) -> Optional[bytes]:
         """
@@ -51,6 +158,57 @@ class MapboxService:
             print(f"Error getting satellite image: {str(e)}")
             return None
     
+    def get_static_map(self, latitude: float, longitude: float, zoom: int = 15,
+                      width: int = 600, height: int = 400, style: str = "streets-v11",
+                      marker: bool = True) -> Optional[bytes]:
+        """
+        Get a static map image using Mapbox Static Images API.
+        
+        Args:
+            latitude: Latitude in decimal degrees
+            longitude: Longitude in decimal degrees
+            zoom: Zoom level (0-22)
+            width: Image width in pixels
+            height: Image height in pixels
+            style: Map style (e.g., streets-v11, dark-v10, satellite-v9)
+            marker: Whether to include a marker at the specified coordinates
+            
+        Returns:
+            Image data as bytes or None if error
+        """
+        try:
+            # Initialize URL parts
+            url_parts = [
+                f"https://api.mapbox.com/styles/v1/mapbox/{style}/static"
+            ]
+            
+            # Add marker if requested
+            if marker:
+                url_parts.append(f"pin-s+FF4B4B({longitude},{latitude})")
+            
+            # Add center coordinates and zoom
+            url_parts.append(f"{longitude},{latitude},{zoom}")
+            
+            # Add dimensions and access token
+            url_parts.append(f"{width}x{height}")
+            url_parts.append(f"?access_token={self.mapbox_api_key}")
+            
+            # Build the complete URL
+            if marker:
+                url = f"{url_parts[0]}/{url_parts[1]},{url_parts[2]}/{url_parts[3]}{url_parts[4]}"
+            else:
+                url = f"{url_parts[0]}/{url_parts[2]}/{url_parts[3]}{url_parts[4]}"
+            
+            # Make the request
+            response = requests.get(url)
+            response.raise_for_status()
+            
+            return response.content
+            
+        except Exception as e:
+            print(f"Error getting static map: {str(e)}")
+            return None
+    
     def get_street_map(self, latitude: float, longitude: float, zoom: int = 15,
                      width: int = 600, height: int = 400) -> Optional[bytes]:
         """
@@ -68,7 +226,7 @@ class MapboxService:
         """
         try:
             # Build the Mapbox Static API URL for street map
-            url = f"https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/{longitude},{latitude},{zoom}/{width}x{height}?access_token={self.mapbox_api_key}"
+            url = f"https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/pin-s+FF4B4B({longitude},{latitude})/{longitude},{latitude},{zoom}/{width}x{height}?access_token={self.mapbox_api_key}"
             
             # Make the request
             response = requests.get(url)
@@ -96,8 +254,8 @@ class MapboxService:
             Image data as bytes or None if error
         """
         try:
-            # Build the Mapbox Static API URL for outdoor/terrain map
-            url = f"https://api.mapbox.com/styles/v1/mapbox/outdoors-v11/static/{longitude},{latitude},{zoom}/{width}x{height}?access_token={self.mapbox_api_key}"
+            # Build the Mapbox Static API URL for terrain map
+            url = f"https://api.mapbox.com/styles/v1/mapbox/outdoors-v11/static/pin-s+FF4B4B({longitude},{latitude})/{longitude},{latitude},{zoom}/{width}x{height}?access_token={self.mapbox_api_key}"
             
             # Make the request
             response = requests.get(url)
@@ -109,106 +267,60 @@ class MapboxService:
             print(f"Error getting terrain map: {str(e)}")
             return None
     
-    def generate_comparison_html(self, drone_image_path: str, latitude: float, longitude: float) -> str:
+    def generate_comparison_html(self, image_path: str, latitude: float, longitude: float, 
+                              zoom: int = 15, width: int = 500, height: int = 500) -> str:
         """
-        Generate HTML for a comparison view between drone image and maps.
+        Generate HTML for displaying a comparison between an image and maps.
         
         Args:
-            drone_image_path: Path to the drone image
+            image_path: Path to the image file to compare
             latitude: Latitude in decimal degrees
             longitude: Longitude in decimal degrees
+            zoom: Zoom level for the maps
+            width: Width of each image in the comparison
+            height: Height of each image in the comparison
             
         Returns:
-            HTML string for the comparison
+            HTML string with the comparison layout
         """
         try:
-            # Get the satellite and map images
-            satellite_image = self.get_satellite_image(latitude, longitude)
-            street_map = self.get_street_map(latitude, longitude)
-            terrain_map = self.get_terrain_map(latitude, longitude)
+            # Get maps at different styles
+            satellite_img = self.get_satellite_image(latitude, longitude, zoom, width, height)
+            street_img = self.get_street_map(latitude, longitude, zoom, width, height)
+            terrain_img = self.get_terrain_map(latitude, longitude, zoom, width, height)
             
-            # Drone image
-            try:
-                with open(drone_image_path, 'rb') as f:
-                    drone_image_data = f.read()
-                    drone_b64 = base64.b64encode(drone_image_data).decode('utf-8')
-            except Exception as e:
-                print(f"Error reading drone image: {str(e)}")
-                drone_b64 = None
-            
-            # Satellite image
-            satellite_b64 = None
-            if satellite_image:
-                try:
-                    satellite_b64 = base64.b64encode(satellite_image).decode('utf-8')
-                except Exception as e:
-                    print(f"Error encoding satellite image: {str(e)}")
-            
-            # Street map
-            street_b64 = None
-            if street_map:
-                try:
-                    street_b64 = base64.b64encode(street_map).decode('utf-8')
-                except Exception as e:
-                    print(f"Error encoding street map: {str(e)}")
-            
-            # Terrain map
-            terrain_b64 = None
-            if terrain_map:
-                try:
-                    terrain_b64 = base64.b64encode(terrain_map).decode('utf-8')
-                except Exception as e:
-                    print(f"Error encoding terrain map: {str(e)}")
+            # Read the drone image
+            with open(image_path, "rb") as img_file:
+                drone_img = img_file.read()
+                
+            # Convert images to base64 for embedding in HTML
+            satellite_b64 = base64.b64encode(satellite_img).decode('utf-8') if satellite_img else ""
+            street_b64 = base64.b64encode(street_img).decode('utf-8') if street_img else ""
+            terrain_b64 = base64.b64encode(terrain_img).decode('utf-8') if terrain_img else ""
+            drone_b64 = base64.b64encode(drone_img).decode('utf-8')
             
             # Create HTML
-            html = """
-            <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
-                <div style="display: flex; flex-direction: row; gap: 10px; width: 100%;">
-                    <div style="flex: 1; border: 1px solid #ccc; border-radius: 5px; padding: 10px; background-color: #f8f8f8;">
-                        <h4 style="margin-top: 0; text-align: center; color: #444;">Drone Image</h4>
-            """
-            
-            if drone_b64:
-                html += f'<img src="data:image/jpeg;base64,{drone_b64}" alt="Drone Image" style="width: 100%; height: auto; max-height: 300px; object-fit: cover; border-radius: 3px;" />'
-            else:
-                html += '<p>Drone image not available</p>'
-            
-            html += """
+            html = f"""
+            <div style="display: flex; flex-direction: column; font-family: Arial, sans-serif;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="width: {width}px;">
+                        <h3 style="text-align: center;">Drone Image</h3>
+                        <img src="data:image/jpeg;base64,{drone_b64}" style="width: 100%; border: 2px solid #333; border-radius: 5px;" />
+                        <p style="text-align: center;">COORDINATES: {latitude:.6f}, {longitude:.6f}</p>
                     </div>
-                    <div style="flex: 1; border: 1px solid #ccc; border-radius: 5px; padding: 10px; background-color: #f8f8f8;">
-                        <h4 style="margin-top: 0; text-align: center; color: #444;">Satellite View</h4>
-            """
-            
-            if satellite_b64:
-                html += f'<img src="data:image/png;base64,{satellite_b64}" alt="Satellite Image" style="width: 100%; height: auto; max-height: 300px; object-fit: cover; border-radius: 3px;" />'
-            else:
-                html += '<p>Satellite image not available</p>'
-            
-            html += """
+                    <div style="width: {width}px;">
+                        <h3 style="text-align: center;">Satellite View</h3>
+                        {f'<img src="data:image/png;base64,{satellite_b64}" style="width: 100%; border: 2px solid #333; border-radius: 5px;" />' if satellite_b64 else '<div style="width: 100%; height: {height}px; display: flex; align-items: center; justify-content: center; background-color: #f0f0f0; border: 2px solid #333; border-radius: 5px;"><p>Satellite image not available</p></div>'}
                     </div>
                 </div>
-                <div style="display: flex; flex-direction: row; gap: 10px; width: 100%;">
-                    <div style="flex: 1; border: 1px solid #ccc; border-radius: 5px; padding: 10px; background-color: #f8f8f8;">
-                        <h4 style="margin-top: 0; text-align: center; color: #444;">Street Map</h4>
-            """
-            
-            if street_b64:
-                html += f'<img src="data:image/png;base64,{street_b64}" alt="Street Map" style="width: 100%; height: auto; max-height: 300px; object-fit: cover; border-radius: 3px;" />'
-            else:
-                html += '<p>Street map not available</p>'
-            
-            html += """
+                <div style="display: flex; justify-content: space-between;">
+                    <div style="width: {width}px;">
+                        <h3 style="text-align: center;">Street Map</h3>
+                        {f'<img src="data:image/png;base64,{street_b64}" style="width: 100%; border: 2px solid #333; border-radius: 5px;" />' if street_b64 else '<div style="width: 100%; height: {height}px; display: flex; align-items: center; justify-content: center; background-color: #f0f0f0; border: 2px solid #333; border-radius: 5px;"><p>Street map not available</p></div>'}
                     </div>
-                    <div style="flex: 1; border: 1px solid #ccc; border-radius: 5px; padding: 10px; background-color: #f8f8f8;">
-                        <h4 style="margin-top: 0; text-align: center; color: #444;">Terrain Map</h4>
-            """
-            
-            if terrain_b64:
-                html += f'<img src="data:image/png;base64,{terrain_b64}" alt="Terrain Map" style="width: 100%; height: auto; max-height: 300px; object-fit: cover; border-radius: 3px;" />'
-            else:
-                html += '<p>Terrain map not available</p>'
-            
-            html += """
+                    <div style="width: {width}px;">
+                        <h3 style="text-align: center;">Terrain Map</h3>
+                        {f'<img src="data:image/png;base64,{terrain_b64}" style="width: 100%; border: 2px solid #333; border-radius: 5px;" />' if terrain_b64 else '<div style="width: 100%; height: {height}px; display: flex; align-items: center; justify-content: center; background-color: #f0f0f0; border: 2px solid #333; border-radius: 5px;"><p>Terrain map not available</p></div>'}
                     </div>
                 </div>
             </div>
@@ -218,7 +330,14 @@ class MapboxService:
             
         except Exception as e:
             print(f"Error generating comparison HTML: {str(e)}")
-            return f"<div>Error generating comparison view: {str(e)}</div>"
+            error_html = f"""
+            <div style="padding: 20px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 5px;">
+                <h3>Error Generating Comparison</h3>
+                <p>{str(e)}</p>
+                <p>Coordinates: {latitude:.6f}, {longitude:.6f}</p>
+            </div>
+            """
+            return error_html
     
     def generate_interactive_map(self, latitude: float, longitude: float, zoom: int = 15) -> str:
         """

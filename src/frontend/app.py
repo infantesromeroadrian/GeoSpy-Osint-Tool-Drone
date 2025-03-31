@@ -11,6 +11,12 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 
+# Constants
+# Use service name for Docker or fallback to localhost
+API_URL = os.environ.get("API_URL", "http://backend:8000")
+REFRESH_INTERVAL = 3  # seconds
+MAPBOX_TOKEN = os.environ.get("MAPBOX_API_KEY", "pk.eyJ1IjoiaW5mYW50ZXNyb21lcm9hZHJpYW4iLCJhIjoiY2xncXAwYWJzMGJlNDNmb2h2MTBvNDF1YiJ9.nXs806Ka9zFqtbKQ4an41Q")
+
 # Initialize session state
 def initialize_session_state():
     """Initialize the session state variables."""
@@ -28,14 +34,11 @@ def initialize_session_state():
         st.session_state.map_html = None
     if 'is_streaming' not in st.session_state:
         st.session_state.is_streaming = False
+    if 'map_style' not in st.session_state:
+        st.session_state.map_style = "satellite-streets-v11"
 
 # Initialize session state at the beginning
 initialize_session_state()
-
-# Constants
-# Use service name for Docker or fallback to localhost
-API_URL = os.environ.get("API_URL", "http://backend:8000")
-REFRESH_INTERVAL = 3  # seconds
 
 # Set Streamlit theme to dark mode
 st.set_page_config(
@@ -54,6 +57,20 @@ st.set_page_config(
         """
     }
 )
+
+# Add Mapbox GL JS resources
+st.markdown(f"""
+<head>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
+    <style>
+        .mapboxgl-map {{
+            border-radius: 5px;
+            height: 500px;
+        }}
+    </style>
+</head>
+""", unsafe_allow_html=True)
 
 # Apply military style
 def apply_military_style():
@@ -280,6 +297,77 @@ with st.sidebar:
 if st.session_state.active_tab == "upload":
     st.markdown("## 👁️ TERRAIN INTELLIGENCE ANALYSIS")
     
+    # Add location search
+    st.markdown("<div class='info-box'>", unsafe_allow_html=True)
+    st.markdown("### 🔍 SEARCH LOCATION")
+    
+    location_search = st.text_input("Enter location (city, address, landmark)", key="location_search")
+    
+    if location_search:
+        with st.spinner("Searching location..."):
+            # Call geocoding API
+            geocode_response = requests.post(
+                f"{API_URL}/api/geocode/forward",
+                json={"query": location_search, "limit": 5}
+            )
+            
+            if geocode_response.status_code == 200:
+                results = geocode_response.json().get("results", [])
+                
+                if results:
+                    st.markdown("**SEARCH RESULTS:**")
+                    
+                    # Create a list of locations for the dropdown
+                    location_options = [f"{r['place_name']} [{r['longitude']:.6f}, {r['latitude']:.6f}]" for r in results]
+                    selected_location = st.selectbox("Select a location", location_options)
+                    
+                    if selected_location:
+                        # Extract the selected location index
+                        selected_idx = location_options.index(selected_location)
+                        selected_result = results[selected_idx]
+                        
+                        # Display selected location details
+                        st.markdown(f"**SELECTED**: {selected_result['place_name']}")
+                        st.markdown(f"**COORDINATES**: {selected_result['latitude']:.6f}, {selected_result['longitude']:.6f}")
+                        
+                        # Display the map for the selected location
+                        if st.button("📍 SHOW ON MAP", key="show_location_map"):
+                            # Generate map with Mapbox GL JS
+                            map_html = create_mapbox_map(
+                                selected_result['latitude'], 
+                                selected_result['longitude'],
+                                zoom=14
+                            )
+                            st.markdown("<div class='map-container'>", unsafe_allow_html=True)
+                            st.markdown("<h3>LOCATION MAP</h3>", unsafe_allow_html=True)
+                            st.components.v1.html(map_html, height=600, scrolling=False)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            
+                            # Get static satellite image
+                            static_response = requests.post(
+                                f"{API_URL}/api/static-map",
+                                json={
+                                    "latitude": selected_result['latitude'],
+                                    "longitude": selected_result['longitude']
+                                },
+                                params={"style": "satellite-v9", "zoom": 14}
+                            )
+                            
+                            if static_response.status_code == 200:
+                                static_data = static_response.json()
+                                st.markdown("<div class='info-box'>", unsafe_allow_html=True)
+                                st.markdown("### SATELLITE VIEW")
+                                st.markdown(f"<img src='{static_data['image_data']}' style='width:100%;border-radius:5px;'>", unsafe_allow_html=True)
+                                st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    st.warning("No results found for your search.")
+            else:
+                st.error(f"Error searching location: {geocode_response.text}")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    st.markdown("<hr>", unsafe_allow_html=True)
+    
     # File uploader
     uploaded_file = st.file_uploader("UPLOAD RECONNAISSANCE IMAGE", type=["jpg", "jpeg", "png"])
     
@@ -419,14 +507,29 @@ if st.session_state.active_tab == "upload":
                                     }
                                 }
                                 
-                                # Generate map if coordinates are available
-                                if lat != '0' and lon != '0':
+                                # Generate map if not already present
+                                if not st.session_state.map_html and lat != '0' and lon != '0':
                                     try:
-                                        map_html = geo_service.generate_map(float(lat), float(lon))
-                                        st.session_state.map_html = map_html
-                                    except Exception as map_error:
-                                        print(f"Error generating map: {str(map_error)}")
-                                        st.session_state.map_html = None
+                                        # Generate map with Mapbox GL JS
+                                        st.session_state.map_html = create_mapbox_map(float(lat), float(lon))
+                                        st.experimental_rerun()
+                                    except Exception as e:
+                                        print(f"Error generating map: {str(e)}")
+                                        st.error(f"Error generating map: {str(e)}")
+                                        # Intentar usar la API como alternativa
+                                        try:
+                                            response = requests.post(
+                                                f"{API_URL}/api/generate/interactive_map",
+                                                json={"latitude": float(lat), "longitude": float(lon)}
+                                            )
+                                            if response.status_code == 200:
+                                                map_data = response.json()
+                                                st.session_state.map_html = map_data.get("map_html")
+                                                if st.session_state.map_html:
+                                                    st.experimental_rerun()
+                                        except Exception as api_err:
+                                            print(f"Fallback map generation also failed: {str(api_err)}")
+                                            st.error(f"Could not generate map: {str(api_err)}")
                                 
                                 # Save results to JSON file
                                 results_file = os.path.join('data', 'results', f'{image_id}.json')
@@ -477,7 +580,7 @@ if st.session_state.active_tab == "upload":
                             if map_html:
                                 st.markdown("<div class='map-container'>", unsafe_allow_html=True)
                                 st.markdown("<h3>GEOLOCATION DATA</h3>", unsafe_allow_html=True)
-                                st.components.v1.html(map_html, height=400)
+                                st.components.v1.html(map_html, height=600, scrolling=False)
                                 st.markdown("</div>", unsafe_allow_html=True)
                                 
                                 # Add comparison button
@@ -537,15 +640,9 @@ if st.session_state.active_tab == "upload":
                         # Generate map if not already present
                         if not st.session_state.map_html and lat != 0 and lon != 0:
                             try:
-                                response = requests.post(
-                                    f"{API_URL}/api/generate/interactive_map",
-                                    json={"latitude": lat, "longitude": lon}
-                                )
-                                if response.status_code == 200:
-                                    map_data = response.json()
-                                    st.session_state.map_html = map_data.get("map_html")
-                                    if st.session_state.map_html:
-                                        st.experimental_rerun()
+                                # Generate map with Mapbox GL JS
+                                st.session_state.map_html = create_mapbox_map(lat, lon)
+                                st.experimental_rerun()
                             except Exception as e:
                                 st.error(f"Error generating map: {str(e)}")
                     except (ValueError, TypeError) as e:
@@ -868,7 +965,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Add CSS for comparison section
+# Add custom CSS
 def apply_custom_css():
     st.markdown("""
     <style>
@@ -877,6 +974,20 @@ def apply_custom_css():
             font-family: 'Roboto Mono', monospace;
             background-color: #0E1117;
             color: #E0E0E0;
+        }
+        
+        /* Map styles selector */
+        .map-style-selector {
+            margin-bottom: 10px;
+            background-color: rgba(30, 30, 30, 0.7);
+            border-radius: 5px;
+            padding: 10px;
+        }
+        
+        .map-style-selector h4 {
+            margin-top: 0;
+            margin-bottom: 5px;
+            color: var(--accent-color, #FF4B4B);
         }
         
         /* Container for the map */
@@ -997,31 +1108,19 @@ def apply_custom_css():
         }
         
         .stButton button:hover {
-            background-color: #D32F2F;
+            background-color: #1E3F20;
+            color: var(--accent-color, #FF4B4B);
+            border: 1px solid var(--accent-color, #FF4B4B);
         }
         
-        /* Header */
-        .header {
-            background-color: #1E1E1E;
-            padding: 1rem;
-            border-radius: 5px;
-            margin-bottom: 1rem;
-            border-left: 5px solid var(--accent-color, #FF4B4B);
-        }
-        
-        .header h1 {
-            margin: 0;
-            color: white;
-        }
-        
-        /* Metrics */
-        .metrics-container {
+        /* Metrics section */
+        .metrics-section {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 1rem;
+            margin-bottom: 15px;
         }
         
-        .metric {
+        .metric-box {
             background-color: #1E1E1E;
             padding: 0.5rem;
             border-radius: 5px;
@@ -1042,6 +1141,240 @@ def apply_custom_css():
         }
     </style>
     """, unsafe_allow_html=True)
+
+# Function to create an interactive Mapbox map
+def create_mapbox_map(latitude, longitude, zoom=13):
+    """Create an interactive Mapbox GL JS map"""
+    map_id = f"map_{int(time.time())}"
+    available_styles = {
+        "satellite-streets-v11": "Satélite con Calles",
+        "satellite-v9": "Satélite",
+        "streets-v11": "Calles",
+        "outdoors-v11": "Terreno",
+        "light-v10": "Claro",
+        "dark-v10": "Oscuro",
+        "navigation-day-v1": "Navegación (Día)",
+        "navigation-night-v1": "Navegación (Noche)"
+    }
+    
+    # Add style selector
+    st.markdown("<div class='map-style-selector'>", unsafe_allow_html=True)
+    st.markdown("<h4>ESTILO DE MAPA</h4>", unsafe_allow_html=True)
+    style_key = st.selectbox(
+        "", 
+        options=list(available_styles.keys()),
+        format_func=lambda x: available_styles[x],
+        index=list(available_styles.keys()).index(st.session_state.map_style),
+        key="style_selector"
+    )
+    st.session_state.map_style = style_key
+    
+    # Add layers toggles
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        show_admin_boundaries = st.checkbox("Admin Boundaries", value=True, key="admin_boundaries")
+    with col2:
+        show_poi = st.checkbox("Points of Interest", value=True, key="poi")
+    with col3:
+        show_terrain = st.checkbox("Terrain Data", value=False, key="terrain")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Create the map HTML
+    map_html = f"""
+    <div id='{map_id}' style='width: 100%; height: 500px;'></div>
+    <script>
+        mapboxgl.accessToken = '{MAPBOX_TOKEN}';
+        const map = new mapboxgl.Map({{
+            container: '{map_id}',
+            style: 'mapbox://styles/mapbox/{style_key}',
+            center: [{longitude}, {latitude}],
+            zoom: {zoom},
+            attributionControl: true
+        }});
+        
+        // Add navigation controls
+        map.addControl(new mapboxgl.NavigationControl());
+        
+        // Add scale
+        map.addControl(new mapboxgl.ScaleControl({{
+            maxWidth: 100,
+            unit: 'metric'
+        }}));
+        
+        // Add fullscreen control
+        map.addControl(new mapboxgl.FullscreenControl());
+        
+        // Add a marker
+        new mapboxgl.Marker({{color: '#FF4B4B'}})
+            .setLngLat([{longitude}, {latitude}])
+            .addTo(map);
+            
+        // Add a popup with coordinates
+        new mapboxgl.Popup({{closeOnClick: false}})
+            .setLngLat([{longitude}, {latitude}])
+            .setHTML('<div style="font-family: monospace;">Lat: {latitude:.6f}<br>Lon: {longitude:.6f}</div>')
+            .addTo(map);
+            
+        // Add a circle to show approximate area
+        map.on('load', function() {{
+            map.addSource('area', {{
+                'type': 'geojson',
+                'data': {{
+                    'type': 'Feature',
+                    'geometry': {{
+                        'type': 'Point',
+                        'coordinates': [{longitude}, {latitude}]
+                    }}
+                }}
+            }});
+            
+            map.addLayer({{
+                'id': 'area-circle',
+                'type': 'circle',
+                'source': 'area',
+                'paint': {{
+                    'circle-radius': 50,
+                    'circle-color': '#FF4B4B',
+                    'circle-opacity': 0.2,
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#FF4B4B'
+                }}
+            }});
+            
+            // Add admin boundaries layer if selected
+            if ({str(show_admin_boundaries).lower()}) {{
+                // Add country boundaries
+                map.addSource('admin-boundaries', {{
+                    type: 'vector',
+                    url: 'mapbox://mapbox.boundaries-adm0-v3,mapbox.boundaries-adm1-v3,mapbox.boundaries-adm2-v3'
+                }});
+                
+                // Add country level (admin0)
+                map.addLayer(
+                    {{
+                        'id': 'admin-0-boundaries',
+                        'type': 'line',
+                        'source': 'admin-boundaries',
+                        'source-layer': 'boundaries_admin_0',
+                        'layout': {{}},
+                        'paint': {{
+                            'line-color': '#FF4B4B',
+                            'line-width': 2,
+                            'line-opacity': 0.7
+                        }}
+                    }}
+                );
+                
+                // Add state/province level (admin1)
+                map.addLayer(
+                    {{
+                        'id': 'admin-1-boundaries',
+                        'type': 'line',
+                        'source': 'admin-boundaries',
+                        'source-layer': 'boundaries_admin_1',
+                        'layout': {{}},
+                        'paint': {{
+                            'line-color': '#FFD700',
+                            'line-width': 1.5,
+                            'line-opacity': 0.6
+                        }}
+                    }}
+                );
+                
+                // Add county/district level (admin2)
+                map.addLayer(
+                    {{
+                        'id': 'admin-2-boundaries',
+                        'type': 'line',
+                        'source': 'admin-boundaries',
+                        'source-layer': 'boundaries_admin_2',
+                        'layout': {{}},
+                        'paint': {{
+                            'line-color': '#1E90FF',
+                            'line-width': 1,
+                            'line-opacity': 0.5
+                        }}
+                    }}
+                );
+            }}
+            
+            // Add points of interest if selected
+            if ({str(show_poi).lower()}) {{
+                map.addLayer(
+                    {{
+                        'id': 'poi-layer',
+                        'type': 'symbol',
+                        'source': {{
+                            'type': 'geojson',
+                            'data': {{
+                                'type': 'FeatureCollection',
+                                'features': []
+                            }}
+                        }},
+                        'layout': {{
+                            'icon-image': 'monument-15',
+                            'text-field': ['get', 'name'],
+                            'text-offset': [0, 0.6],
+                            'text-anchor': 'top',
+                            'text-size': 12
+                        }},
+                        'paint': {{
+                            'text-color': '#FFFFFF',
+                            'text-halo-color': '#000000',
+                            'text-halo-width': 1
+                        }}
+                    }}
+                );
+                
+                // Fetch POIs from Mapbox Geocoding API for the area
+                fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/poi.json?proximity={longitude},{latitude}&radius=1000&access_token={MAPBOX_TOKEN}`)
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.features && data.features.length > 0) {{
+                            map.getSource('poi-layer').setData({{
+                                'type': 'FeatureCollection',
+                                'features': data.features.map(f => ({{
+                                    'type': 'Feature',
+                                    'geometry': f.geometry,
+                                    'properties': {{
+                                        'name': f.text,
+                                        'description': f.place_name
+                                    }}
+                                }}))
+                            }});
+                        }}
+                    }});
+            }}
+            
+            // Add terrain data if selected
+            if ({str(show_terrain).lower()}) {{
+                map.addSource('mapbox-dem', {{
+                    'type': 'raster-dem',
+                    'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+                    'tileSize': 512,
+                    'maxzoom': 14
+                }});
+                
+                // Add 3D terrain
+                map.setTerrain({{ 'source': 'mapbox-dem', 'exaggeration': 1.5 }});
+                
+                // Add sky layer
+                map.addLayer({{
+                    'id': 'sky',
+                    'type': 'sky',
+                    'paint': {{
+                        'sky-type': 'atmosphere',
+                        'sky-atmosphere-sun': [0.0, 0.0],
+                        'sky-atmosphere-sun-intensity': 15
+                    }}
+                }});
+            }}
+        }});
+    </script>
+    """
+    
+    return map_html
 
 # Main execution code at module level
 if __name__ == "__main__":
