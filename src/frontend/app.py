@@ -288,9 +288,10 @@ with st.sidebar:
     # Additional system info
     st.markdown("## SYSTEM DETAILS")
     st.markdown("<div class='info-box'>", unsafe_allow_html=True)
-    st.markdown("**MODEL**: GPT-4 Vision")
+    st.markdown("**MODEL**: Gemini 2.5 Pro (exp-03-25)")
     st.markdown("**ACCURACY**: HIGH")
-    st.markdown("**RESPONSE TIME**: 2-5s")
+    st.markdown("**RESPONSE TIME**: 1-3s")
+    st.markdown("**FEATURES**: <span style='color: #1a73e8;'>Advanced Geospatial Analysis</span>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # Main content area
