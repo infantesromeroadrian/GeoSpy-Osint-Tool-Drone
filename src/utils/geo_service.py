@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, Tuple
 from geopy.geocoders import Nominatim
 import folium
 from dotenv import load_dotenv
+import math
 
 load_dotenv()
 
@@ -255,36 +256,97 @@ class GeoService:
     
     @staticmethod
     def _calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """
-        Calculate the Haversine distance between two points in meters.
+        """Calculate the distance between two coordinates in kilometers."""
+        # Approximate radius of Earth in km
+        R = 6371
         
-        Args:
-            lat1: Latitude of point 1 in decimal degrees
-            lon1: Longitude of point 1 in decimal degrees
-            lat2: Latitude of point 2 in decimal degrees
-            lon2: Longitude of point 2 in decimal degrees
-            
-        Returns:
-            Distance in meters
-        """
-        from math import radians, sin, cos, sqrt, atan2
+        # Convert latitudes and longitudes from degrees to radians
+        lat1_rad = math.radians(lat1)
+        lon1_rad = math.radians(lon1)
+        lat2_rad = math.radians(lat2)
+        lon2_rad = math.radians(lon2)
         
-        # Earth radius in meters
-        R = 6371000
-        
-        # Convert coordinates to radians
-        lat1_rad = radians(lat1)
-        lon1_rad = radians(lon1)
-        lat2_rad = radians(lat2)
-        lon2_rad = radians(lon2)
-        
-        # Calculate differences
-        dlat = lat2_rad - lat1_rad
-        dlon = lon2_rad - lon1_rad
+        # Differences
+        d_lat = lat2_rad - lat1_rad
+        d_lon = lon2_rad - lon1_rad
         
         # Haversine formula
-        a = sin(dlat/2)**2 + cos(lat1_rad) * cos(lat2_rad) * sin(dlon/2)**2
-        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        a = math.sin(d_lat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(d_lon/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
         distance = R * c
         
-        return distance 
+        return distance
+    
+    def generate_interactive_map(self, latitude: float, longitude: float, zoom: int = 15) -> str:
+        """
+        Generate an interactive map for the given coordinates using folium.
+        
+        Args:
+            latitude: Latitude coordinate
+            longitude: Longitude coordinate
+            zoom: Zoom level (1-18)
+            
+        Returns:
+            HTML string for the interactive map
+        """
+        try:
+            # Create a new map centered at the specified coordinates
+            m = folium.Map(location=[latitude, longitude], zoom_start=zoom, 
+                          tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=' + self.mapbox_token,
+                          attr='Mapbox')
+            
+            # Add a marker at the coordinates
+            tooltip = f"Lat: {latitude}, Lon: {longitude}"
+            folium.Marker(
+                [latitude, longitude], 
+                tooltip=tooltip,
+                icon=folium.Icon(color='red', icon='info-sign')
+            ).add_to(m)
+            
+            # Add a circle to indicate a radius
+            folium.Circle(
+                radius=500,  # 500 meters
+                location=[latitude, longitude],
+                color='crimson',
+                fill=True,
+                fill_color='crimson',
+                fill_opacity=0.2
+            ).add_to(m)
+            
+            # Add LayerControl to switch between different map styles
+            folium.TileLayer(
+                tiles='https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=' + self.mapbox_token,
+                attr='Mapbox Streets',
+                name='Streets'
+            ).add_to(m)
+            
+            folium.TileLayer(
+                tiles='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}@2x?access_token=' + self.mapbox_token,
+                attr='Mapbox Satellite',
+                name='Satellite'
+            ).add_to(m)
+            
+            folium.TileLayer(
+                tiles='https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=' + self.mapbox_token,
+                attr='Mapbox Outdoors',
+                name='Outdoors'
+            ).add_to(m)
+            
+            folium.LayerControl().add_to(m)
+            
+            # Get the HTML representation
+            html_map = m._repr_html_()
+            
+            return html_map
+            
+        except Exception as e:
+            print(f"Error generating interactive map: {str(e)}")
+            # Fallback to a basic map
+            try:
+                m = folium.Map(location=[latitude, longitude], zoom_start=zoom)
+                folium.Marker([latitude, longitude]).add_to(m)
+                html_map = m._repr_html_()
+                return html_map
+            except Exception as fallback_err:
+                print(f"Fallback map generation failed: {str(fallback_err)}")
+                return "" 

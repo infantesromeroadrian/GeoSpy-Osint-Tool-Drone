@@ -288,10 +288,11 @@ with st.sidebar:
     # Additional system info
     st.markdown("## SYSTEM DETAILS")
     st.markdown("<div class='info-box'>", unsafe_allow_html=True)
-    st.markdown("**MODEL**: Gemini 2.5 Pro (exp-03-25)")
+    st.markdown("**VISION MODEL**: Gemini 2.5 Pro (exp-03-25)")
+    st.markdown("**OBJECT DETECTION**: YOLOv8 (Neural Network)")
     st.markdown("**ACCURACY**: HIGH")
     st.markdown("**RESPONSE TIME**: 1-3s")
-    st.markdown("**FEATURES**: <span style='color: #1a73e8;'>Advanced Geospatial Analysis</span>", unsafe_allow_html=True)
+    st.markdown("**FEATURES**: <span style='color: #1a73e8;'>Advanced Geospatial Analysis</span> | <span style='color: #FF4B4B;'>Object & Personnel Detection</span>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # Main content area
@@ -379,7 +380,7 @@ if st.session_state.active_tab == "upload":
         col1, col2 = st.columns([3, 2])
         
         with col1:
-            st.image(image, use_column_width=True)
+            st.image(image, use_container_width=True)
         
         with col2:
             st.markdown("<div class='info-box'>", unsafe_allow_html=True)
@@ -392,14 +393,51 @@ if st.session_state.active_tab == "upload":
             
             # Analysis button
             if st.button("🎯 ANALYZE TERRAIN", use_container_width=True):
-                with st.spinner("PROCESSING INTELLIGENCE DATA..."):
-                    # Save the image to a BytesIO object
+                # Create a placeholder for the progress bar
+                progress_placeholder = st.empty()
+                status_placeholder = st.empty()
+                
+                # Initialize progress bar
+                progress_bar = progress_placeholder.progress(0)
+                status_placeholder.info("Iniciando análisis...")
+                
+                try:
+                    # Save the image to a BytesIO object (5%)
+                    progress_bar.progress(5)
+                    status_placeholder.info("Preparando imagen...")
+                    
+                    # Try to determine the original format or fallback to PNG
+                    if hasattr(image, 'format') and image.format:
+                        img_format = image.format
+                    else:
+                        # Convert to RGB mode if not already to avoid transparency issues
+                        if image.mode == 'RGBA':
+                            image = image.convert('RGB')
+                        img_format = 'PNG'  # PNG is more universally supported
+                        
                     buf = io.BytesIO()
-                    image.save(buf, format="JPEG")
+                    try:
+                        image.save(buf, format=img_format)
+                    except Exception as save_error:
+                        # If the original format fails, try PNG as fallback
+                        print(f"Error saving with original format: {str(save_error)}")
+                        if img_format != 'PNG':
+                            if image.mode == 'RGBA':
+                                image = image.convert('RGB')
+                            buf = io.BytesIO()  # Create a new buffer
+                            image.save(buf, format='PNG')
+                        else:
+                            # If PNG also fails, raise the error
+                            raise save_error
+                            
                     byte_im = buf.getvalue()
                     
-                    # Upload to the API
-                    files = {"file": (uploaded_file.name, byte_im, "image/jpeg")}
+                    # Upload to the API (15%)
+                    progress_bar.progress(15)
+                    status_placeholder.info("Subiendo imagen al servidor...")
+                    
+                    content_type = f"image/{img_format.lower()}" if img_format != 'PNG' else "image/png"
+                    files = {"file": (uploaded_file.name, byte_im, content_type)}
                     response = requests.post(f"{API_URL}/api/upload/image", files=files)
                     
                     if response.status_code == 200:
@@ -407,31 +445,26 @@ if st.session_state.active_tab == "upload":
                         image_id = upload_data.get("image_id")
                         st.session_state.current_image_id = image_id
                         
-                        # Analyze the image
+                        # Analyze the image (30%)
+                        progress_bar.progress(30)
+                        status_placeholder.info("Analizando imagen con inteligencia artificial...")
+                        
                         analysis_response = requests.post(f"{API_URL}/api/analyze/image/{image_id}")
                         
                         if analysis_response.status_code == 200:
-                            analysis_data = analysis_response.json()
+                            # Processing analysis data (60%)
+                            progress_bar.progress(60)
+                            status_placeholder.info("Procesando resultados del análisis...")
                             
-                            # Debug print
-                            print(f"Analysis data keys: {', '.join(analysis_data.keys())}")
-                            if 'llm_analysis' in analysis_data:
-                                print(f"LLM analysis type: {type(analysis_data['llm_analysis'])}")
-                                if isinstance(analysis_data['llm_analysis'], dict):
-                                    print(f"LLM analysis keys: {', '.join(analysis_data['llm_analysis'].keys())}")
-                                else:
-                                    print(f"LLM analysis content: {analysis_data['llm_analysis']}")
-                            if 'geo_data' in analysis_data:
-                                print(f"Geo data type: {type(analysis_data['geo_data'])}")
-                                if isinstance(analysis_data['geo_data'], dict):
-                                    print(f"Geo data keys: {', '.join(analysis_data['geo_data'].keys())}")
-                                else:
-                                    print(f"Geo data content: {analysis_data['geo_data']}")
+                            analysis_data = analysis_response.json()
                             
                             # Extract data with error handling
                             try:
                                 # LLM Analysis
                                 llm_analysis = analysis_data.get('llm_analysis', {})
+                                if llm_analysis is None:
+                                    llm_analysis = {}
+                                
                                 if isinstance(llm_analysis, str):
                                     description = llm_analysis
                                     confidence = 'medium'  # Default confidence for string responses
@@ -441,6 +474,9 @@ if st.session_state.active_tab == "upload":
                                 
                                 # Geo Data
                                 geo_data = analysis_data.get('geo_data', {})
+                                if geo_data is None:
+                                    geo_data = {}
+                                    
                                 if isinstance(geo_data, str):
                                     # If geo_data is a string, try to parse it as JSON
                                     try:
@@ -454,21 +490,39 @@ if st.session_state.active_tab == "upload":
                                 neighborhood = geo_data.get('neighborhood', 'Unknown')
                                 street = geo_data.get('street', 'Unknown')
                                 coordinates = geo_data.get('coordinates', {})
+                                if coordinates is None:
+                                    coordinates = {}
+                                
                                 lat = coordinates.get('latitude', '0')
                                 lon = coordinates.get('longitude', '0')
                                 architectural_features = geo_data.get('architectural_features', [])
+                                if architectural_features is None:
+                                    architectural_features = []
+                                
                                 landscape_features = geo_data.get('landscape_features', [])
+                                if landscape_features is None:
+                                    landscape_features = []
                                 
                                 # Metadata with safe defaults
                                 metadata = analysis_data.get('metadata', {})
+                                if metadata is None:
+                                    metadata = {}
+                                
                                 camera_info = metadata.get('camera_info', {})
+                                if camera_info is None:
+                                    camera_info = {}
+                                
                                 make = camera_info.get('make', 'Unknown')
                                 model = camera_info.get('model', 'Unknown')
                                 focal_length = camera_info.get('focal_length', 'Unknown')
                                 exposure_time = camera_info.get('exposure_time', 'Unknown')
                                 f_number = camera_info.get('f_number', 'Unknown')
                                 iso = camera_info.get('iso', 'Unknown')
+                                
                                 gps_info = metadata.get('gps_info', {})
+                                if gps_info is None:
+                                    gps_info = {}
+                                
                                 gps_lat = gps_info.get('latitude', 'Unknown')
                                 gps_lon = gps_info.get('longitude', 'Unknown')
                                 gps_alt = gps_info.get('altitude', 'Unknown')
@@ -508,45 +562,69 @@ if st.session_state.active_tab == "upload":
                                     }
                                 }
                                 
-                                # Generate map if not already present
+                                # Generate map if not already present (85%)
+                                progress_bar.progress(85)
+                                status_placeholder.info("Generando mapa interactivo...")
+                                
                                 if not st.session_state.map_html and lat != '0' and lon != '0':
                                     try:
-                                        # Generate map with Mapbox GL JS
-                                        st.session_state.map_html = create_mapbox_map(float(lat), float(lon))
-                                        st.experimental_rerun()
-                                    except Exception as e:
-                                        print(f"Error generating map: {str(e)}")
-                                        st.error(f"Error generating map: {str(e)}")
-                                        # Intentar usar la API como alternativa
-                                        try:
-                                            response = requests.post(
-                                                f"{API_URL}/api/generate/interactive_map",
-                                                json={"latitude": float(lat), "longitude": float(lon)}
-                                            )
-                                            if response.status_code == 200:
-                                                map_data = response.json()
-                                                st.session_state.map_html = map_data.get("map_html")
-                                                if st.session_state.map_html:
-                                                    st.experimental_rerun()
-                                        except Exception as api_err:
-                                            print(f"Fallback map generation also failed: {str(api_err)}")
-                                            st.error(f"Could not generate map: {str(api_err)}")
+                                        # Call the API to generate the map
+                                        response = requests.post(
+                                            f"{API_URL}/api/generate/interactive_map",
+                                            json={"latitude": float(lat), "longitude": float(lon), "zoom": 13}
+                                        )
+                                        
+                                        if response.status_code == 200:
+                                            map_data = response.json()
+                                            st.session_state.map_html = map_data.get("map_html")
+                                    except Exception as api_err:
+                                        print(f"Fallback map generation also failed: {str(api_err)}")
+                                        status_placeholder.error(f"No se pudo generar el mapa: {str(api_err)}")
                                 
-                                # Save results to JSON file
+                                # Save results to JSON file (95%)
+                                progress_bar.progress(95)
+                                status_placeholder.info("Guardando resultados...")
+                                
                                 results_file = os.path.join('data', 'results', f'{image_id}.json')
                                 with open(results_file, 'w', encoding='utf-8') as f:
                                     json.dump(analysis_data, f, ensure_ascii=False, indent=2)
                                 
-                                st.success("Analysis completed successfully!")
+                                # Analysis complete (100%)
+                                progress_bar.progress(100)
+                                status_placeholder.success("¡Análisis completado con éxito!")
+                                
+                                # Clear the progress bar after a delay
+                                time.sleep(1)
+                                progress_placeholder.empty()
+                                status_placeholder.empty()
+                                
+                                # Display success message
+                                st.success("Análisis completado con éxito!")
+                                
+                                # Refresh the page to display results
+                                st.rerun()
                                 
                             except Exception as e:
-                                st.error(f"Error processing analysis results: {str(e)}")
+                                progress_bar.progress(100)
+                                status_placeholder.error(f"Error procesando resultados: {str(e)}")
+                                st.error(f"Error procesando resultados del análisis: {str(e)}")
                                 print(f"Error details: {str(e)}")
                                 print(f"Analysis data structure: {json.dumps(analysis_data, indent=2)}")
                         else:
-                            st.error(f"ERROR ANALYZING IMAGE: {analysis_response.text}")
+                            progress_bar.progress(100)
+                            status_placeholder.error(f"ERROR ANALIZANDO IMAGEN: {analysis_response.text}")
+                            st.error(f"ERROR ANALIZANDO IMAGEN: {analysis_response.text}")
                     else:
-                        st.error(f"ERROR UPLOADING IMAGE: {response.text}")
+                        progress_bar.progress(100)
+                        status_placeholder.error(f"ERROR SUBIENDO IMAGEN: {response.text}")
+                        st.error(f"ERROR SUBIENDO IMAGEN: {response.text}")
+                except Exception as e:
+                    if 'progress_bar' in locals():
+                        progress_bar.progress(100)
+                    if 'status_placeholder' in locals():
+                        status_placeholder.error(f"Error procesando imagen: {str(e)}")
+                    st.error(f"Error procesando imagen: {str(e)}")
+                    print(f"Image processing error details: {str(e)}")
     
     # Display analysis results
     if st.session_state.analysis_results:
@@ -562,7 +640,13 @@ if st.session_state.active_tab == "upload":
             # Map
             if st.session_state.analysis_results:
                 location = st.session_state.analysis_results.get('location', {})
+                if location is None:
+                    location = {}
+                
                 coordinates = location.get('coordinates', {})
+                if coordinates is None:
+                    coordinates = {}
+                
                 lat = coordinates.get('latitude')
                 lon = coordinates.get('longitude')
                 
@@ -571,7 +655,7 @@ if st.session_state.active_tab == "upload":
                         # Call the API to generate the map
                         response = requests.post(
                             f"{API_URL}/api/generate/interactive_map",
-                            json={"latitude": float(lat), "longitude": float(lon)}
+                            json={"latitude": float(lat), "longitude": float(lon), "zoom": 13}
                         )
                         
                         if response.status_code == 200:
@@ -622,7 +706,7 @@ if st.session_state.active_tab == "upload":
             
             # Location details
             location = st.session_state.analysis_results.get('location', {})
-            if location:
+            if location and isinstance(location, dict):
                 st.markdown("<div class='info-box'>", unsafe_allow_html=True)
                 st.markdown("### LOCATION DETAILS")
                 st.markdown(f"**COUNTRY**: {location.get('country', 'Unknown')}")
@@ -631,7 +715,7 @@ if st.session_state.active_tab == "upload":
                 st.markdown(f"**STREET**: {location.get('street', 'Unknown')}")
                 
                 coords = location.get('coordinates', {})
-                if coords:
+                if coords and isinstance(coords, dict):
                     try:
                         lat = float(coords.get('latitude', 0))
                         lon = float(coords.get('longitude', 0))
@@ -643,7 +727,7 @@ if st.session_state.active_tab == "upload":
                             try:
                                 # Generate map with Mapbox GL JS
                                 st.session_state.map_html = create_mapbox_map(lat, lon)
-                                st.experimental_rerun()
+                                st.rerun()
                             except Exception as e:
                                 st.error(f"Error generating map: {str(e)}")
                     except (ValueError, TypeError) as e:
@@ -661,30 +745,32 @@ if st.session_state.active_tab == "upload":
             
             # Features
             features = st.session_state.analysis_results.get('features', {})
-            if features:
+            if features and isinstance(features, dict):
                 st.markdown("<div class='info-box'>", unsafe_allow_html=True)
                 st.markdown("### TERRAIN FEATURES")
                 
-                if features.get('architectural'):
+                architectural = features.get('architectural')
+                if architectural and isinstance(architectural, list):
                     st.markdown("**ARCHITECTURAL FEATURES:**")
-                    for feature in features['architectural']:
+                    for feature in architectural:
                         st.markdown(f"- {feature}")
                 
-                if features.get('landscape'):
+                landscape = features.get('landscape')
+                if landscape and isinstance(landscape, list):
                     st.markdown("**LANDSCAPE FEATURES:**")
-                    for feature in features['landscape']:
+                    for feature in landscape:
                         st.markdown(f"- {feature}")
                 
                 st.markdown("</div>", unsafe_allow_html=True)
             
             # Metadata
             metadata = st.session_state.analysis_results.get('metadata', {})
-            if metadata:
+            if metadata and isinstance(metadata, dict):
                 st.markdown("<div class='info-box'>", unsafe_allow_html=True)
                 st.markdown("### TECHNICAL DATA")
                 
                 camera = metadata.get('camera', {})
-                if camera:
+                if camera and isinstance(camera, dict):
                     st.markdown("**CAMERA INFO:**")
                     st.markdown(f"- Make: {camera.get('make', 'Unknown')}")
                     st.markdown(f"- Model: {camera.get('model', 'Unknown')}")
@@ -694,13 +780,138 @@ if st.session_state.active_tab == "upload":
                     st.markdown(f"- ISO: {camera.get('iso', 'Unknown')}")
                 
                 gps = metadata.get('gps', {})
-                if gps:
+                if gps and isinstance(gps, dict):
                     st.markdown("**GPS DATA:**")
                     st.markdown(f"- Latitude: {gps.get('latitude', 'Unknown')}")
                     st.markdown(f"- Longitude: {gps.get('longitude', 'Unknown')}")
                     st.markdown(f"- Altitude: {gps.get('altitude', 'Unknown')}")
                 
                 st.markdown("</div>", unsafe_allow_html=True)
+
+    # Add new section to show object detection results after analyzing the image
+    if st.session_state.analysis_results:
+        # Object detection button
+        col1, col2 = st.columns([3, 2])
+        
+        with col1:
+            # Add a button to trigger object detection
+            if st.button("🔍 DETECT OBJECTS & PERSONNEL", key="detect_objects_btn", use_container_width=True):
+                with st.spinner("PROCESSING OBJECT DETECTION..."):
+                    # Get current image ID
+                    image_id = st.session_state.current_image_id
+                    
+                    # Call object detection API
+                    detection_response = requests.post(
+                        f"{API_URL}/api/detect/objects",
+                        json={
+                            "image_id": image_id,
+                            "confidence_threshold": 0.25
+                        }
+                    )
+                    
+                    if detection_response.status_code == 200:
+                        detection_data = detection_response.json()
+                        
+                        # Store detection results in session state
+                        st.session_state.object_detection_results = detection_data.get("detection_results", {})
+                        
+                        # Get annotated image immediately
+                        annotated_image_response = requests.get(f"{API_URL}/api/image/annotated/{image_id}")
+                        
+                        if annotated_image_response.status_code == 200:
+                            annotated_image_data = annotated_image_response.json()
+                            st.session_state.annotated_image = annotated_image_data.get("annotated_image")
+                            st.success(f"Object detection completed: {detection_data.get('message')}")
+                        else:
+                            st.warning(f"Detection successful but couldn't load annotated image: {annotated_image_response.text}")
+                            st.success(f"Object detection completed: {detection_data.get('message')}")
+                    else:
+                        st.error(f"Error in object detection: {detection_response.text}")
+
+        # Display object detection results if available
+        if 'object_detection_results' in st.session_state and st.session_state.object_detection_results:
+            st.markdown("## 📊 OBJECT DETECTION RESULTS")
+            
+            col1, col2 = st.columns([3, 2])
+            
+            with col1:
+                # Display annotated image if available
+                if 'annotated_image' in st.session_state and st.session_state.annotated_image:
+                    st.markdown("<div class='info-box'>", unsafe_allow_html=True)
+                    st.markdown("### ANNOTATED IMAGE")
+                    st.markdown(f"<img src='{st.session_state.annotated_image}' style='width:100%; border-radius:5px;'>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    # Try to get the annotated image path directly from the results
+                    try:
+                        annotated_img_path = st.session_state.object_detection_results.get("annotated_image_path")
+                        if annotated_img_path:
+                            st.warning("Trying to load annotated image directly...")
+                            image_id = st.session_state.current_image_id
+                            # Make a direct request to get the annotated image
+                            annotated_image_response = requests.get(f"{API_URL}/api/image/annotated/{image_id}")
+                            if annotated_image_response.status_code == 200:
+                                annotated_image_data = annotated_image_response.json()
+                                st.session_state.annotated_image = annotated_image_data.get("annotated_image")
+                                # Display the image
+                                if st.session_state.annotated_image:
+                                    st.markdown("<div class='info-box'>", unsafe_allow_html=True)
+                                    st.markdown("### ANNOTATED IMAGE")
+                                    st.markdown(f"<img src='{st.session_state.annotated_image}' style='width:100%; border-radius:5px;'>", unsafe_allow_html=True)
+                                    st.markdown("</div>", unsafe_allow_html=True)
+                            else:
+                                st.error(f"Error obteniendo imagen anotada: {annotated_image_response.text}")
+                        else:
+                            st.error("Error: No se encontró la ruta de la imagen anotada.")
+                    except Exception as e:
+                        st.error(f"Error al procesar la imagen anotada: {str(e)}")
+            
+            with col2:
+                # Display detection summary
+                summary = st.session_state.object_detection_results.get("summary", {})
+                if summary:
+                    st.markdown("<div class='info-box'>", unsafe_allow_html=True)
+                    st.markdown("### DETECTION SUMMARY")
+                    st.markdown(f"**TOTAL OBJECTS**: {summary.get('total_objects_detected', 0)}")
+                    st.markdown(f"**PERSONNEL PRESENT**: {'Yes' if summary.get('has_people', False) else 'No'}")
+                    
+                    if summary.get('most_common_object'):
+                        st.markdown(f"**MOST COMMON**: {summary.get('most_common_object')}")
+                    
+                    # Show object counts
+                    object_counts = summary.get('object_counts', {})
+                    if object_counts:
+                        st.markdown("### OBJECT COUNTS")
+                        for obj, count in sorted(object_counts.items(), key=lambda x: x[1], reverse=True):
+                            st.markdown(f"- {obj}: {count}")
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
+                
+                # Display tactical assessment
+                assessment = st.session_state.object_detection_results.get("assessment", {})
+                if assessment:
+                    st.markdown("<div class='info-box'>", unsafe_allow_html=True)
+                    st.markdown("### TACTICAL ASSESSMENT")
+                    
+                    # Format threat level with appropriate color
+                    threat_level = assessment.get('threat_level', 'UNKNOWN')
+                    threat_color = "#4CAF50" if threat_level == "LOW" else "#FFC107" if threat_level == "MEDIUM" else "#F44336" if threat_level == "HIGH" else "#9E9E9E"
+                    st.markdown(f"**THREAT LEVEL**: <span style='color:{threat_color};font-weight:bold;'>{threat_level}</span>", unsafe_allow_html=True)
+                    
+                    # Format other assessment data
+                    st.markdown(f"**TACTICAL VALUE**: {assessment.get('tactical_value', 'UNKNOWN')}")
+                    st.markdown(f"**INTELLIGENCE VALUE**: {assessment.get('intelligence_value', 'UNKNOWN')}")
+                    st.markdown(f"**POPULATION DENSITY**: {assessment.get('population_density', 'UNKNOWN')}")
+                    st.markdown(f"**VEHICLE PRESENCE**: {assessment.get('vehicle_presence', 'UNKNOWN')}")
+                    st.markdown(f"**INFRASTRUCTURE**: {assessment.get('infrastructure_assessment', 'UNKNOWN')}")
+                    st.markdown(f"**PERSONNEL COUNT**: {assessment.get('personnel_count', 0)}")
+                    st.markdown(f"**VEHICLE COUNT**: {assessment.get('vehicle_count', 0)}")
+                    
+                    # Show warning if suspicious activities detected
+                    if assessment.get('suspicious_activities', False):
+                        st.markdown(f"<div style='background-color:#F44336;color:white;padding:10px;border-radius:5px;margin-top:10px;'><strong>WARNING:</strong> Potential suspicious activities detected</div>", unsafe_allow_html=True)
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
 
 elif st.session_state.active_tab == "stream":
     st.markdown("## 🎥 LIVE DRONE RECONNAISSANCE")
@@ -952,7 +1163,7 @@ elif st.session_state.active_tab == "chat":
                             st.session_state.chat_history.append({"role": "assistant", "content": response_text})
                             
                             # Clear the input field (need to rerun the app)
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error(f"ERROR: {response.text}")
         else:
@@ -1145,237 +1356,33 @@ def apply_custom_css():
 
 # Function to create an interactive Mapbox map
 def create_mapbox_map(latitude, longitude, zoom=13):
-    """Create an interactive Mapbox GL JS map"""
-    map_id = f"map_{int(time.time())}"
-    available_styles = {
-        "satellite-streets-v11": "Satélite con Calles",
-        "satellite-v9": "Satélite",
-        "streets-v11": "Calles",
-        "outdoors-v11": "Terreno",
-        "light-v10": "Claro",
-        "dark-v10": "Oscuro",
-        "navigation-day-v1": "Navegación (Día)",
-        "navigation-night-v1": "Navegación (Noche)"
-    }
-    
-    # Add style selector
-    st.markdown("<div class='map-style-selector'>", unsafe_allow_html=True)
-    st.markdown("<h4>ESTILO DE MAPA</h4>", unsafe_allow_html=True)
-    style_key = st.selectbox(
-        "", 
-        options=list(available_styles.keys()),
-        format_func=lambda x: available_styles[x],
-        index=list(available_styles.keys()).index(st.session_state.map_style),
-        key="style_selector"
-    )
-    st.session_state.map_style = style_key
-    
-    # Add layers toggles
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        show_admin_boundaries = st.checkbox("Admin Boundaries", value=True, key="admin_boundaries")
-    with col2:
-        show_poi = st.checkbox("Points of Interest", value=True, key="poi")
-    with col3:
-        show_terrain = st.checkbox("Terrain Data", value=False, key="terrain")
-    
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    # Create the map HTML
-    map_html = f"""
-    <div id='{map_id}' style='width: 100%; height: 500px;'></div>
-    <script>
-        mapboxgl.accessToken = '{MAPBOX_TOKEN}';
-        const map = new mapboxgl.Map({{
-            container: '{map_id}',
-            style: 'mapbox://styles/mapbox/{style_key}',
-            center: [{longitude}, {latitude}],
-            zoom: {zoom},
-            attributionControl: true
-        }});
-        
-        // Add navigation controls
-        map.addControl(new mapboxgl.NavigationControl());
-        
-        // Add scale
-        map.addControl(new mapboxgl.ScaleControl({{
-            maxWidth: 100,
-            unit: 'metric'
-        }}));
-        
-        // Add fullscreen control
-        map.addControl(new mapboxgl.FullscreenControl());
-        
-        // Add a marker
-        new mapboxgl.Marker({{color: '#FF4B4B'}})
-            .setLngLat([{longitude}, {latitude}])
-            .addTo(map);
-            
-        // Add a popup with coordinates
-        new mapboxgl.Popup({{closeOnClick: false}})
-            .setLngLat([{longitude}, {latitude}])
-            .setHTML('<div style="font-family: monospace;">Lat: {latitude:.6f}<br>Lon: {longitude:.6f}</div>')
-            .addTo(map);
-            
-        // Add a circle to show approximate area
-        map.on('load', function() {{
-            map.addSource('area', {{
-                'type': 'geojson',
-                'data': {{
-                    'type': 'Feature',
-                    'geometry': {{
-                        'type': 'Point',
-                        'coordinates': [{longitude}, {latitude}]
-                    }}
-                }}
-            }});
-            
-            map.addLayer({{
-                'id': 'area-circle',
-                'type': 'circle',
-                'source': 'area',
-                'paint': {{
-                    'circle-radius': 50,
-                    'circle-color': '#FF4B4B',
-                    'circle-opacity': 0.2,
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#FF4B4B'
-                }}
-            }});
-            
-            // Add admin boundaries layer if selected
-            if ({str(show_admin_boundaries).lower()}) {{
-                // Add country boundaries
-                map.addSource('admin-boundaries', {{
-                    type: 'vector',
-                    url: 'mapbox://mapbox.boundaries-adm0-v3,mapbox.boundaries-adm1-v3,mapbox.boundaries-adm2-v3'
-                }});
-                
-                // Add country level (admin0)
-                map.addLayer(
-                    {{
-                        'id': 'admin-0-boundaries',
-                        'type': 'line',
-                        'source': 'admin-boundaries',
-                        'source-layer': 'boundaries_admin_0',
-                        'layout': {{}},
-                        'paint': {{
-                            'line-color': '#FF4B4B',
-                            'line-width': 2,
-                            'line-opacity': 0.7
-                        }}
-                    }}
-                );
-                
-                // Add state/province level (admin1)
-                map.addLayer(
-                    {{
-                        'id': 'admin-1-boundaries',
-                        'type': 'line',
-                        'source': 'admin-boundaries',
-                        'source-layer': 'boundaries_admin_1',
-                        'layout': {{}},
-                        'paint': {{
-                            'line-color': '#FFD700',
-                            'line-width': 1.5,
-                            'line-opacity': 0.6
-                        }}
-                    }}
-                );
-                
-                // Add county/district level (admin2)
-                map.addLayer(
-                    {{
-                        'id': 'admin-2-boundaries',
-                        'type': 'line',
-                        'source': 'admin-boundaries',
-                        'source-layer': 'boundaries_admin_2',
-                        'layout': {{}},
-                        'paint': {{
-                            'line-color': '#1E90FF',
-                            'line-width': 1,
-                            'line-opacity': 0.5
-                        }}
-                    }}
-                );
-            }}
-            
-            // Add points of interest if selected
-            if ({str(show_poi).lower()}) {{
-                map.addLayer(
-                    {{
-                        'id': 'poi-layer',
-                        'type': 'symbol',
-                        'source': {{
-                            'type': 'geojson',
-                            'data': {{
-                                'type': 'FeatureCollection',
-                                'features': []
-                            }}
-                        }},
-                        'layout': {{
-                            'icon-image': 'monument-15',
-                            'text-field': ['get', 'name'],
-                            'text-offset': [0, 0.6],
-                            'text-anchor': 'top',
-                            'text-size': 12
-                        }},
-                        'paint': {{
-                            'text-color': '#FFFFFF',
-                            'text-halo-color': '#000000',
-                            'text-halo-width': 1
-                        }}
-                    }}
-                );
-                
-                // Fetch POIs from Mapbox Geocoding API for the area
-                fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/poi.json?proximity={longitude},{latitude}&radius=1000&access_token={MAPBOX_TOKEN}`)
-                    .then(response => response.json())
-                    .then(data => {{
-                        if (data.features && data.features.length > 0) {{
-                            map.getSource('poi-layer').setData({{
-                                'type': 'FeatureCollection',
-                                'features': data.features.map(f => ({{
-                                    'type': 'Feature',
-                                    'geometry': f.geometry,
-                                    'properties': {{
-                                        'name': f.text,
-                                        'description': f.place_name
-                                    }}
-                                }}))
-                            }});
-                        }}
-                    }});
-            }}
-            
-            // Add terrain data if selected
-            if ({str(show_terrain).lower()}) {{
-                map.addSource('mapbox-dem', {{
-                    'type': 'raster-dem',
-                    'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
-                    'tileSize': 512,
-                    'maxzoom': 14
-                }});
-                
-                // Add 3D terrain
-                map.setTerrain({{ 'source': 'mapbox-dem', 'exaggeration': 1.5 }});
-                
-                // Add sky layer
-                map.addLayer({{
-                    'id': 'sky',
-                    'type': 'sky',
-                    'paint': {{
-                        'sky-type': 'atmosphere',
-                        'sky-atmosphere-sun': [0.0, 0.0],
-                        'sky-atmosphere-sun-intensity': 15
-                    }}
-                }});
-            }}
-        }});
-    </script>
     """
+    Create an interactive Mapbox map with custom styling.
     
-    return map_html
+    Args:
+        latitude (float): The latitude coordinate
+        longitude (float): The longitude coordinate
+        zoom (int): The zoom level (1-18)
+        
+    Returns:
+        str: HTML string for the interactive map
+    """
+    try:
+        # Call the API to generate the map instead of creating it directly
+        response = requests.post(
+            f"{API_URL}/api/generate/interactive_map",
+            json={"latitude": float(latitude), "longitude": float(longitude), "zoom": int(zoom)}
+        )
+        
+        if response.status_code == 200:
+            map_data = response.json()
+            return map_data.get("map_html", "")
+        else:
+            print(f"Error calling map API: {response.text}")
+            return ""
+    except Exception as e:
+        print(f"Error in create_mapbox_map: {str(e)}")
+        return ""
 
 # Main execution code at module level
 if __name__ == "__main__":

@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    # Required for YOLOv8 and performance
+    ffmpeg \
+    libavcodec-extra \
     # Required for healthchecks
     curl \
     # Cleanup
@@ -31,6 +34,10 @@ COPY requirements.txt /app/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Create directory for YOLOv8 models and download the default model
+RUN mkdir -p /app/models/yolo \
+    && python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
 # Copy project files
 COPY . /app/

@@ -1,15 +1,17 @@
 # Core dependencies
-fastapi==0.109.0
-uvicorn==0.27.0
-python-multipart==0.0.6
-pydantic==2.5.3
+fastapi>=0.104.1
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.4.2
 
 # Vision and AI capabilities
 langchain==0.1.5
-google-generativeai==0.3.2
-pillow==10.2.0
-opencv-python==4.9.0.80
-numpy==1.26.3
+google-generativeai>=0.3.1
+pillow>=10.1.0
+opencv-python>=4.8.1.78
+numpy>=1.26.0
+ultralytics>=8.0.0  # YOLOv8
+torch==2.0.1  # PyTorch for YOLO backend
 
 # Geolocation and metadata extraction
 exifread==3.0.0
@@ -17,9 +19,12 @@ geopy==2.4.1
 folium==0.15.0
 
 # Frontend
-streamlit==1.30.0
-plotly==5.18.0
+streamlit>=1.28.0
+plotly>=5.18.0
 
 # Utils
-python-dotenv==1.0.0
-requests==2.31.0 
+python-dotenv>=1.0.0
+requests>=2.31.0
+matplotlib>=3.8.0
+pandas>=2.1.0
+reportlab>=4.0.4  # PDF Generation 
